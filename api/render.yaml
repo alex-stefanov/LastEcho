@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: lastecho-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: LASTECHO_ADMIN_USER
+        value: admin
+      - key: LASTECHO_ADMIN_PASSWORD
+        sync: false
+      - key: LASTECHO_ADMIN_TOKEN
+        sync: false
+      - key: LASTECHO_CORS_ORIGINS
+        sync: false
+      - key: LASTECHO_SMTP_HOST
+        value: smtp.postmarkapp.com
+      - key: LASTECHO_SMTP_PORT
+        value: "587"
+      - key: LASTECHO_SMTP_USER
+        sync: false
+      - key: LASTECHO_SMTP_PASSWORD
+        sync: false
+      - key: LASTECHO_SMTP_FROM
+        value: sg58912333@edu.mon.bg
+      - key: LASTECHO_SMTP_USE_TLS
+        value: "true"

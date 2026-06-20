@@ -96,3 +96,28 @@ The triage sweep drafts emails per language, a human approves them, then:
   `language_organizations.json` all have one) and configured SMTP.
 - `POST /api/outreach-queue/{id}/mark-sent` — only *records* that the admin sent
   it manually (for institutions with no email, just a contact page).
+
+## Deployment (Fly.io)
+
+A `Dockerfile` and `fly.toml` are included. The SQLite db lives on a Fly
+volume at `/data` so it survives redeploys.
+
+```bash
+flyctl auth login
+flyctl launch --no-deploy           # picks up fly.toml; rename the app if "lastecho-api" is taken
+flyctl volumes create lastecho_data --size 1 --region fra
+flyctl secrets set \
+  LASTECHO_ADMIN_PASSWORD=<choose-a-password> \
+  LASTECHO_ADMIN_TOKEN=$(openssl rand -hex 32) \
+  LASTECHO_CORS_ORIGINS=https://<your-frontend-domain> \
+  LASTECHO_SMTP_HOST=smtp.postmarkapp.com \
+  LASTECHO_SMTP_PORT=587 \
+  LASTECHO_SMTP_USER=<postmark-server-token> \
+  LASTECHO_SMTP_PASSWORD=<postmark-server-token> \
+  LASTECHO_SMTP_FROM=<verified-sender@yourdomain.org>
+flyctl deploy
+```
+
+Re-run `flyctl secrets set LASTECHO_CORS_ORIGINS=...` once the frontend's real
+URL is known. `ANTHROPIC_API_KEY` is intentionally omitted — outreach drafting
+falls back to the deterministic template, which is fine end-to-end.
