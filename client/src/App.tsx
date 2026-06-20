@@ -5,9 +5,14 @@ import Timeline from './components/Timeline';
 import Wordmark from './components/Wordmark';
 import SelectedCard from './components/SelectedCard';
 import RotateControl from './components/RotateControl';
-import { LANGUAGES, statusAt, TODAY, type Vitality } from './data/mockLanguages';
+import { statusAt, TODAY, type LangRecord, type Vitality } from './data/mockLanguages';
+import languagesData from './data/languages.json';
+import { fetchOutreachStatus, type OutreachStatusSummary } from './data/api';
 
 type Filters = Record<Vitality, boolean>;
+
+// Precomputed dataset, bundled at build time — no need to fetch it on load.
+const languages = languagesData.languages as LangRecord[];
 
 export default function App() {
   const [year, setYear] = useState(TODAY);
@@ -16,6 +21,15 @@ export default function App() {
   const [filters, setFilters] = useState<Filters>({ alive: true, atRisk: true, lost: true });
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [outreachStatus, setOutreachStatus] = useState<Record<number, OutreachStatusSummary>>({});
+
+  // Outreach status is a secondary, backend-driven layer — load it
+  // independently and fail quietly if it's not there yet.
+  useEffect(() => {
+    fetchOutreachStatus()
+      .then(setOutreachStatus)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onResize = () => setSize({ w: window.innerWidth, h: window.innerHeight });
@@ -26,21 +40,28 @@ export default function App() {
   // Counts for this year — drives the summary row and the filter legend.
   const counts = useMemo(() => {
     const c: Record<Vitality, number> = { alive: 0, atRisk: 0, lost: 0 };
-    for (const l of LANGUAGES) c[statusAt(l, year)]++;
+    for (const l of languages) c[statusAt(l, year)]++;
     return c;
-  }, [year]);
+  }, [languages, year]);
 
-  const selected = selectedId === null ? null : LANGUAGES.find((l) => l.id === selectedId) ?? null;
+  const selected = selectedId === null ? null : languages.find((l) => l.id === selectedId) ?? null;
+
+  const underOutreach = useMemo(
+    () => Object.values(outreachStatus).filter((o) => o.hasPending || o.hasApproved).length,
+    [outreachStatus],
+  );
 
   return (
     <div className="app">
       <div className="globe-layer">
         <GlobeView
+          languages={languages}
           width={size.w}
           height={size.h}
           year={year}
           filters={filters}
           autoRotate={autoRotate}
+          outreachStatus={outreachStatus}
           onUserInteract={() => setAutoRotate(false)}
           onSelect={setSelectedId}
         />
@@ -57,6 +78,13 @@ export default function App() {
             <span className="label">{k === 'atRisk' ? 'At risk' : k}</span>
           </div>
         ))}
+        {underOutreach > 0 && (
+          <div className="metric outreach">
+            <span className="dot" />
+            <span className="value">{underOutreach.toLocaleString()}</span>
+            <span className="label">Under outreach</span>
+          </div>
+        )}
       </div>
 
       <FilterPanel
@@ -69,7 +97,14 @@ export default function App() {
 
       <RotateControl on={autoRotate} onToggle={() => setAutoRotate((v) => !v)} />
 
-      {selected && <SelectedCard lang={selected} year={year} onClose={() => setSelectedId(null)} />}
+      {selected && (
+        <SelectedCard
+          lang={selected}
+          year={year}
+          outreach={outreachStatus[selected.id]}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
     </div>
   );
 }

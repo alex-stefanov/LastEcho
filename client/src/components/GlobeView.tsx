@@ -1,23 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Globe from 'react-globe.gl';
-import { LANGUAGES, statusAt, colorFor, type Vitality } from '../data/mockLanguages';
+import { statusAt, colorFor, type LangRecord, type Vitality } from '../data/mockLanguages';
+import type { OutreachStatusSummary } from '../data/api';
 
 interface Props {
+  languages: LangRecord[];
   width: number;
   height: number;
   year: number;
   filters: Record<Vitality, boolean>;
   autoRotate: boolean;
+  outreachStatus?: Record<number, OutreachStatusSummary>;
   onUserInteract: () => void;
   onSelect: (id: number) => void;
 }
 
 const COUNTRIES_URL =
   'https://cdn.jsdelivr.net/gh/vasturiano/globe.gl/example/datasets/ne_110m_admin_0_countries.geojson';
-
-// Stable marker payloads + lookup — built once so the globe never rebuilds DOM.
-const MARKERS = LANGUAGES.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lng }));
-const BY_ID = new Map(LANGUAGES.map((l) => [l.id, l]));
 
 const htmlLat = (d: any) => d.lat;
 const htmlLng = (d: any) => d.lng;
@@ -26,17 +25,30 @@ const visibilityModifier = (el: HTMLElement, isVisible: boolean) =>
   el.classList.toggle('behind', !isVisible);
 
 export default function GlobeView({
+  languages,
   width,
   height,
   year,
   filters,
   autoRotate,
+  outreachStatus,
   onUserInteract,
   onSelect,
 }: Props) {
   const globeEl = useRef<any>(null);
   const els = useRef<Map<number, HTMLDivElement>>(new Map());
   const [land, setLand] = useState<any[]>([]);
+
+  // Marker payloads + lookup, derived from the fetched data. Rebuilt only when
+  // the dataset identity changes (i.e. once, when the API responds).
+  const markers = useMemo(
+    () => languages.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lng })),
+    [languages],
+  );
+  const byId = useMemo(() => new Map(languages.map((l) => [l.id, l])), [languages]);
+  // Ref so the stable element builder always sees the current lookup.
+  const byIdRef = useRef(byId);
+  byIdRef.current = byId;
 
   // Refs so the (stable) element builder always sees current values.
   const yearRef = useRef(year);
@@ -47,6 +59,8 @@ export default function GlobeView({
   onSelectRef.current = onSelect;
   const onInteractRef = useRef(onUserInteract);
   onInteractRef.current = onUserInteract;
+  const outreachRef = useRef(outreachStatus);
+  outreachRef.current = outreachStatus;
 
   useEffect(() => {
     let alive = true;
@@ -78,13 +92,35 @@ export default function GlobeView({
       const s = Math.min(1.55, Math.max(0.72, 360 / dist));
       document.documentElement.style.setProperty('--mscale', s.toFixed(3));
     };
-    const onStart = () => onInteractRef.current(); // grabbing the globe stops rotation
+    // Only a real drag (or zoom) stops the auto-rotation — a plain click,
+    // e.g. selecting a marker, leaves the planet spinning.
+    const canvas: HTMLElement = g.renderer().domElement;
+    let downX = 0;
+    let downY = 0;
+    let dragging = false;
+    const onPointerDown = (e: PointerEvent) => {
+      downX = e.clientX;
+      downY = e.clientY;
+      dragging = false;
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (dragging || (e.buttons & 1) === 0) return;
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) {
+        dragging = true;
+        onInteractRef.current();
+      }
+    };
+    const onWheel = () => onInteractRef.current(); // zooming counts as interacting
+    canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointermove', onPointerMove);
+    canvas.addEventListener('wheel', onWheel, { passive: true });
     c.addEventListener('change', onChange);
-    c.addEventListener('start', onStart);
     onChange();
     return () => {
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('wheel', onWheel);
       c.removeEventListener('change', onChange);
-      c.removeEventListener('start', onStart);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -97,14 +133,27 @@ export default function GlobeView({
 
   // Re-color / show-hide markers per year + filter — no DOM rebuild.
   useEffect(() => {
-    for (const l of LANGUAGES) {
+    for (const l of languages) {
       const el = els.current.get(l.id);
       if (!el) continue;
       const s = statusAt(l, year);
       el.style.setProperty('--c', colorFor(s));
       el.classList.toggle('filtered-out', !filters[s]);
     }
-  }, [year, filters]);
+  }, [languages, year, filters]);
+
+  // Outreach ring is a separate concern from vitality color — it reflects the
+  // backend sweep's own decisions, so it updates independently (e.g. once the
+  // status fetch resolves, without waiting on a year/filter change).
+  useEffect(() => {
+    for (const l of languages) {
+      const el = els.current.get(l.id);
+      if (!el) continue;
+      const o = outreachStatus?.[l.id];
+      el.classList.toggle('has-approved', !!o?.hasApproved);
+      el.classList.toggle('has-pending', !o?.hasApproved && !!o?.hasPending);
+    }
+  }, [languages, outreachStatus]);
 
   const buildElement = useCallback((d: any) => {
     const wrap = document.createElement('div');
@@ -118,10 +167,13 @@ export default function GlobeView({
     });
     els.current.set(d.id, wrap);
 
-    const rec = BY_ID.get(d.id)!;
+    const rec = byIdRef.current.get(d.id)!;
     const s = statusAt(rec, yearRef.current);
     wrap.style.setProperty('--c', colorFor(s));
     wrap.classList.toggle('filtered-out', !filtersRef.current[s]);
+    const o = outreachRef.current?.[d.id];
+    wrap.classList.toggle('has-approved', !!o?.hasApproved);
+    wrap.classList.toggle('has-pending', !o?.hasApproved && !!o?.hasPending);
     return wrap;
   }, []);
 
@@ -142,7 +194,7 @@ export default function GlobeView({
       polygonStrokeColor={() => 'rgba(168, 190, 220, 0.4)'}
       polygonAltitude={0.006}
       polygonsTransitionDuration={400}
-      htmlElementsData={MARKERS}
+      htmlElementsData={markers}
       htmlLat={htmlLat}
       htmlLng={htmlLng}
       htmlAltitude={0.012}
