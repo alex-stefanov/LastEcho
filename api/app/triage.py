@@ -12,7 +12,7 @@ from __future__ import annotations
 import sqlite3
 
 from . import matching, outreach, store_db
-from .schemas import InstitutionsFile, Language, TriageRunResult
+from .schemas import InstitutionsFile, Language, Organization, TriageRunResult
 
 
 def run_sweep(
@@ -23,6 +23,7 @@ def run_sweep(
     top_n: int,
     ror_cache_ttl_days: int,
     anthropic_api_key: str | None,
+    organizations: list[Organization] | None = None,
 ) -> TriageRunResult:
     candidates = sorted(languages, key=lambda l: l.rank)[:top_n]
     drafted = 0
@@ -34,7 +35,8 @@ def run_sweep(
             continue
 
         ladder = matching.build_ladder(
-            conn, institutions_file, language, ror_cache_ttl_days=ror_cache_ttl_days
+            conn, institutions_file, language,
+            ror_cache_ttl_days=ror_cache_ttl_days, organizations=organizations,
         )
         if not ladder:
             skipped += 1
@@ -68,6 +70,7 @@ def escalate(
     *,
     ror_cache_ttl_days: int,
     anthropic_api_key: str | None,
+    organizations: list[Organization] | None = None,
 ) -> sqlite3.Row | None:
     """Mark a sent-but-unanswered draft as no_reply and queue the next rung.
     Returns the new draft row, or None if the current rung was already the
@@ -81,7 +84,8 @@ def escalate(
     if language is None:
         return None
     ladder = matching.build_ladder(
-        conn, institutions_file, language, ror_cache_ttl_days=ror_cache_ttl_days
+        conn, institutions_file, language,
+        ror_cache_ttl_days=ror_cache_ttl_days, organizations=organizations,
     )
     tiers = [rung.tier for rung in ladder]
     try:

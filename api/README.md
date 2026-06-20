@@ -64,9 +64,22 @@ pytest
 
 ## Configuration
 
-| Variable                 | Default            | Purpose                              |
-| ------------------------ | ------------------ | ------------------------------------ |
-| `LASTECHO_CORS_ORIGINS`  | `*`                | Comma-separated allowed CORS origins |
-| `LASTECHO_DATA_PATH`     | `api/data/...json` | Override the dataset location        |
+| Variable                      | Default                                       | Purpose                                                                                    |
+| ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `LASTECHO_CORS_ORIGINS`       | `*`                                           | Comma-separated allowed CORS origins                                                       |
+| `LASTECHO_DATA_PATH`          | `api/data/...json`                            | Override the dataset location                                                              |
+| `LASTECHO_ORGANIZATIONS_PATH` | `client/src/data/language_organizations.json` | Emailable orgs matched into the local rung of the ladder                                   |
+| `LASTECHO_SMTP_*`             | unset / `587` / `true`                        | `HOST/PORT/USER/PASSWORD/FROM/USE_TLS` for real sending. Without host+from, send returns 503 |
 
 See `.env.example`.
+
+## Sending an outreach email
+
+The triage sweep drafts emails per language, a human approves them, then:
+
+- `POST /api/outreach-queue/{id}/send` — **really sends** an approved draft over
+  SMTP to the matched organization's address, then marks it `sent`. Requires a
+  recipient `institutionEmail` (the local-rung orgs from
+  `language_organizations.json` all have one) and configured SMTP.
+- `POST /api/outreach-queue/{id}/mark-sent` — only *records* that the admin sent
+  it manually (for institutions with no email, just a contact page).

@@ -24,4 +24,5 @@ def run(store: DataStore = Depends(get_store), conn: sqlite3.Connection = Depend
         top_n=settings.triage_top_n,
         ror_cache_ttl_days=settings.ror_cache_ttl_days,
         anthropic_api_key=settings.anthropic_api_key,
+        organizations=store.organizations,
     )

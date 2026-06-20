@@ -13,8 +13,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from . import national_lookup, store_db
-from .schemas import Institution, InstitutionsFile, Language
+from . import national_lookup, organizations as organizations_mod, store_db
+from .schemas import Institution, InstitutionsFile, Language, Organization
 
 # Coarse continent bounding boxes — just enough to pick the right Continental
 # fallback entry, not precise geocoding (that's what the National tier is for).
@@ -67,6 +67,28 @@ def _regional_pick(institutions: list[Institution], region: str) -> Institution 
     return None
 
 
+def _org_pick(
+    organizations: list[Organization], lat: float, lng: float
+) -> Institution | None:
+    """The nearest real, emailable organization in the *same country* as the
+    language. Reuses the National tier's offline reverse-geocode for the country
+    gate (so a Portugal org never gets matched to a language in Mali) and picks
+    the closest by great-circle distance among the in-country candidates."""
+    if not organizations:
+        return None
+    cc = national_lookup.country_for(lat, lng)
+    if cc is None:
+        return None
+    in_country = [o for o in organizations if o.cc == cc]
+    if not in_country:
+        return None
+    nearest = min(
+        in_country,
+        key=lambda o: national_lookup._haversine_km(lat, lng, o.latitude, o.longitude),
+    )
+    return organizations_mod.to_institution(nearest)
+
+
 def _national_pick(
     conn: sqlite3.Connection, lat: float, lng: float, ttl_days: int
 ) -> Institution | None:
@@ -105,13 +127,21 @@ def build_ladder(
     language: Language,
     *,
     ror_cache_ttl_days: int,
+    organizations: list[Organization] | None = None,
 ) -> list[LadderRung]:
-    """The 3-rung escalation ladder for one language: local -> continental -> global."""
+    """The 3-rung escalation ladder for one language: local -> continental -> global.
+
+    Local priority: a hand-verified regional hotspot first, then the nearest
+    real emailable organization in-country (the rung the send endpoint can
+    actually transmit to), then a live national ROR match as the last local
+    resort."""
     institutions = institutions_file.institutions
     continent = continent_for(language.lat, language.lng)
 
-    local = _regional_pick(institutions, language.region) or _national_pick(
-        conn, language.lat, language.lng, ror_cache_ttl_days
+    local = (
+        _regional_pick(institutions, language.region)
+        or _org_pick(organizations or [], language.lat, language.lng)
+        or _national_pick(conn, language.lat, language.lng, ror_cache_ttl_days)
     )
     continental = _continental_pick(institutions, continent)
     glob = _global_pick(institutions)
@@ -131,9 +161,11 @@ def matched_institutions(
     language: Language,
     *,
     ror_cache_ttl_days: int,
+    organizations: list[Organization] | None = None,
 ) -> list[Institution]:
     """All informational matches for the public read-only chips (not just the
     ladder rung currently being drafted) — same priority order, local first."""
     return [rung.institution for rung in build_ladder(
-        conn, institutions_file, language, ror_cache_ttl_days=ror_cache_ttl_days,
+        conn, institutions_file, language,
+        ror_cache_ttl_days=ror_cache_ttl_days, organizations=organizations,
     )]

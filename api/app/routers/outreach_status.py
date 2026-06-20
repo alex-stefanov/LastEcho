@@ -52,7 +52,9 @@ def outreach_status(
         if language is not None:
             count = len(
                 matching.matched_institutions(
-                    conn, store.institutions, language, ror_cache_ttl_days=settings.ror_cache_ttl_days
+                    conn, store.institutions, language,
+                    ror_cache_ttl_days=settings.ror_cache_ttl_days,
+                    organizations=store.organizations,
                 )
             )
         out[language_id] = _summary_for_row(conn, row, count)
@@ -73,5 +75,7 @@ def language_institutions(
     if language is None:
         raise HTTPException(status_code=404, detail="Language not found")
     return matching.matched_institutions(
-        conn, store.institutions, language, ror_cache_ttl_days=settings.ror_cache_ttl_days
+        conn, store.institutions, language,
+        ror_cache_ttl_days=settings.ror_cache_ttl_days,
+        organizations=store.organizations,
     )

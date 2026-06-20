@@ -12,9 +12,13 @@ import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from app import matching, national_lookup, store_db, triage
-from app.schemas import Institution, InstitutionsFile, Language
+from app.dependencies import get_db
+from app.routers import outreach_queue
+from app.schemas import Institution, InstitutionsFile, Language, Organization
 
 NEW_GUINEA = Language(
     id=1, name="Testu", lat=-5.6, lng=143.5, family="Trans–New Guinea",
@@ -58,9 +62,30 @@ INSTITUTIONS = InstitutionsFile(
 )
 
 
+# A language in Viseu, Portugal — same place as the Fun Languages Viseu org, so
+# country_for() resolves PT and the org becomes the local rung.
+PORTUGAL = Language(
+    id=4, name="Lusu", lat=40.65, lng=-7.92, family="Indo-European",
+    region="Scattered", speakers=300, docLevel="none", rank=1,
+    declineStart=None, lostYear=None,
+)
+
+VISEU_ORG = Organization(
+    name="Fun Languages Viseu", email="viseu@example.com", city="Viseu",
+    country="Portugal", latitude=40.6544, longitude=-7.9206, cc="PT",
+)
+BERLIN_ORG = Organization(
+    name="Sprachschule Berlin", email="berlin@example.com", city="Berlin",
+    country="Germany", latitude=52.52, longitude=13.405, cc="DE",
+)
+
+
 @pytest.fixture
 def conn() -> sqlite3.Connection:
-    c = sqlite3.connect(":memory:")
+    # check_same_thread=False so the same in-memory db is reachable from the
+    # TestClient's portal thread in the send-endpoint tests (access is still
+    # serialized — the test thread blocks while the request is handled).
+    c = sqlite3.connect(":memory:", check_same_thread=False)
     c.row_factory = sqlite3.Row
     store_db.create_tables(c)
     yield c
@@ -222,3 +247,117 @@ def test_escalate_advances_to_next_rung_then_stops_at_global(conn):
             ror_cache_ttl_days=30, anthropic_api_key=None,
         )
     assert result is None
+
+
+# --- organization matching (language_organizations.json) --------------------
+
+def test_org_is_local_rung_when_in_same_country(conn):
+    # Viseu language + Viseu org -> the org is the local rung, carrying a real
+    # email. No regional hotspot for "Scattered", so the org wins ahead of any
+    # national ROR lookup (which is why httpx is never touched here).
+    ladder = matching.build_ladder(
+        conn, INSTITUTIONS, PORTUGAL, ror_cache_ttl_days=30,
+        organizations=[BERLIN_ORG, VISEU_ORG],
+    )
+    local = next(r for r in ladder if r.tier == "local")
+    assert local.institution.email == "viseu@example.com"
+    assert local.institution.name == "Fun Languages Viseu"
+    assert local.institution.id == "org-fun-languages-viseu"
+    assert ladder[-1].tier == "global"
+
+
+def test_org_not_matched_across_countries(conn):
+    # A Berlin-only org pool must not be matched to a Portuguese language; with
+    # no in-country org and no regional hotspot, it falls through to the national
+    # ROR tier (mocked empty) -> local rung absent.
+    with patch("app.national_lookup.httpx.Client") as MockClient:
+        MockClient.return_value.__enter__.return_value.get.return_value = _ror_response([])
+        ladder = matching.build_ladder(
+            conn, INSTITUTIONS, PORTUGAL, ror_cache_ttl_days=30, organizations=[BERLIN_ORG],
+        )
+    assert all(r.institution.email != "berlin@example.com" for r in ladder)
+
+
+def test_regional_hotspot_still_outranks_org(conn):
+    # An org pool must not displace a hand-verified regional match.
+    ladder = matching.build_ladder(
+        conn, INSTITUTIONS, NEW_GUINEA, ror_cache_ttl_days=30, organizations=[VISEU_ORG],
+    )
+    assert ladder[0].tier == "local"
+    assert ladder[0].institution.id == "paradisec"
+
+
+# --- send endpoint: real SMTP transmission ----------------------------------
+
+def _send_client(conn: sqlite3.Connection) -> TestClient:
+    """A minimal app exposing just the outreach-queue router, wired to the
+    in-memory db — avoids the full lifespan (dataset load + ROR sweep)."""
+    app = FastAPI()
+    app.include_router(outreach_queue.router)
+    app.dependency_overrides[get_db] = lambda: conn
+    return TestClient(app)
+
+
+def _approved_draft(conn: sqlite3.Connection, *, email: str | None) -> int:
+    draft_id = store_db.insert_draft(
+        conn, language_id=PORTUGAL.id, institution_id="org-fun-languages-viseu", tier="local",
+        subject="Documentation support for Lusu", body="Hello,\n\nPlease help.", ask="Help?",
+        language_name="Lusu", institution_name="Fun Languages Viseu",
+        institution_url="", institution_contact_url=f"mailto:{email}" if email else "",
+        institution_email=email,
+    )
+    store_db.set_status(conn, draft_id, "approved")
+    return draft_id
+
+
+def test_send_transmits_and_marks_sent(conn):
+    draft_id = _approved_draft(conn, email="viseu@example.com")
+    with patch.object(outreach_queue.mailer, "is_configured", return_value=True), \
+         patch.object(outreach_queue.mailer, "send") as mock_send:
+        res = _send_client(conn).post(f"/api/outreach-queue/{draft_id}/send")
+    assert res.status_code == 200
+    assert res.json()["status"] == "sent"
+    mock_send.assert_called_once()
+    kwargs = mock_send.call_args.kwargs
+    assert kwargs["to"] == "viseu@example.com"
+    assert kwargs["subject"] == "Documentation support for Lusu"
+    assert store_db.get_draft(conn, draft_id)["status"] == "sent"
+
+
+def test_send_requires_recipient_email(conn):
+    draft_id = _approved_draft(conn, email=None)
+    with patch.object(outreach_queue.mailer, "is_configured", return_value=True), \
+         patch.object(outreach_queue.mailer, "send") as mock_send:
+        res = _send_client(conn).post(f"/api/outreach-queue/{draft_id}/send")
+    assert res.status_code == 400
+    mock_send.assert_not_called()
+    assert store_db.get_draft(conn, draft_id)["status"] == "approved"  # unchanged
+
+
+def test_send_503_when_smtp_unconfigured(conn):
+    draft_id = _approved_draft(conn, email="viseu@example.com")
+    with patch.object(outreach_queue.mailer, "is_configured", return_value=False), \
+         patch.object(outreach_queue.mailer, "send") as mock_send:
+        res = _send_client(conn).post(f"/api/outreach-queue/{draft_id}/send")
+    assert res.status_code == 503
+    mock_send.assert_not_called()
+    assert store_db.get_draft(conn, draft_id)["status"] == "approved"
+
+
+def test_send_502_on_delivery_failure_leaves_draft_unsent(conn):
+    draft_id = _approved_draft(conn, email="viseu@example.com")
+    with patch.object(outreach_queue.mailer, "is_configured", return_value=True), \
+         patch.object(outreach_queue.mailer, "send", side_effect=RuntimeError("smtp down")):
+        res = _send_client(conn).post(f"/api/outreach-queue/{draft_id}/send")
+    assert res.status_code == 502
+    assert store_db.get_draft(conn, draft_id)["status"] == "approved"  # not marked sent
+
+
+def test_send_rejects_unapproved_draft(conn):
+    draft_id = _approved_draft(conn, email="viseu@example.com")
+    store_db.set_status(conn, draft_id, "pending_review")  # back to pending
+    with patch.object(outreach_queue.mailer, "is_configured", return_value=True), \
+         patch.object(outreach_queue.mailer, "send") as mock_send:
+        res = _send_client(conn).post(f"/api/outreach-queue/{draft_id}/send")
+    assert res.status_code == 400
+    mock_send.assert_not_called()

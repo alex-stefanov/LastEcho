@@ -25,7 +25,7 @@ from .routers import triage as triage_router
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Load and validate the datasets once, before the server accepts traffic.
-    store = DataStore(settings.data_path, settings.institutions_path)
+    store = DataStore(settings.data_path, settings.institutions_path, settings.organizations_path)
     store.load()
     app.state.store = store
 
@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         top_n=settings.triage_top_n,
         ror_cache_ttl_days=settings.ror_cache_ttl_days,
         anthropic_api_key=settings.anthropic_api_key,
+        organizations=store.organizations,
     )
 
     yield
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
                 "/api/outreach-status",
                 "/api/languages/{id}/institutions",
                 "/api/outreach-queue",
+                "/api/outreach-queue/{id}/send",
                 "/api/triage/run",
             ],
         }

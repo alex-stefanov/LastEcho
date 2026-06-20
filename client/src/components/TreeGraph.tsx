@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getCachedYear,
   loadYear,
@@ -50,10 +50,10 @@ interface Leaf {
   x: number;
   y: number;
   r: number;
-  gd: number; // grow-in delay (s)
-  fd: number; // fall delay (s)
-  drift: number; // horizontal drift while falling (px)
-  spin: number; // rotation while falling (deg)
+  // Per-leaf animation timings (grow-in/fall delay, drift, spin) are baked into
+  // one stable style object at build time, so re-renders never allocate a fresh
+  // style and <LeafDot> can memoise on it by reference.
+  style: React.CSSProperties;
 }
 interface GroupHit {
   name: string;
@@ -186,6 +186,10 @@ function buildForest(groups: MajorGroup[]): Forest {
       const rad = Math.sqrt(rand()) * r;
       const ox = Math.cos(a) * rad;
       const oy = Math.sin(a) * rad * 0.92 - r * 0.12;
+      const gd = 0.2 + seq * 0.0012 + rand() * 0.3; // grow-in delay (s)
+      const fd = rand() * 0.5; // fall delay (s)
+      const drift = jit(40); // horizontal drift while falling (px)
+      const spin = jit(150); // rotation while falling (deg)
       leaves.push({
         iso: l.iso_code,
         name: l.name,
@@ -193,10 +197,12 @@ function buildForest(groups: MajorGroup[]): Forest {
         x: cx + ox,
         y: cy + oy,
         r: 2.2 + rand() * 1.4,
-        gd: 0.2 + seq * 0.0012 + rand() * 0.3,
-        fd: rand() * 0.5,
-        drift: jit(40),
-        spin: jit(150),
+        style: {
+          ['--gd' as string]: `${gd.toFixed(2)}s`,
+          ['--fd' as string]: `${fd.toFixed(2)}s`,
+          ['--drift' as string]: `${drift.toFixed(0)}px`,
+          ['--spin' as string]: `${spin.toFixed(0)}deg`,
+        } as React.CSSProperties,
       });
       seq++;
     }
@@ -252,6 +258,39 @@ const GROUP_ORDER_TREE: VitalityGroup[] = ['healthy', 'watch', 'serious', 'gone'
 function groupOf(map: Map<string, YearLang>, iso: string): VitalityGroup {
   return map.get(iso)?.vitality_group ?? 'unknown';
 }
+
+// A single leaf. Memoised so a year scrub only re-renders the handful of leaves
+// whose vitality group actually changed: `cls` is the sole varying prop (its
+// string value is stable when the group is unchanged), and `style` is a stable
+// reference baked at build time. Click handling is delegated to the parent <g>,
+// so leaves carry no per-element closures.
+const LeafDot = memo(function LeafDot({
+  iso,
+  name,
+  fam,
+  x,
+  y,
+  r,
+  cls,
+  style,
+}: {
+  iso: string;
+  name: string;
+  fam: string;
+  x: number;
+  y: number;
+  r: number;
+  cls: string;
+  style: React.CSSProperties;
+}) {
+  return (
+    <circle className={cls} cx={x} cy={y} r={r} style={style} data-iso={iso}>
+      <title>
+        {name} · {fam}
+      </title>
+    </circle>
+  );
+});
 
 export default function TreeGraph({ year, yearData, selectedIso, onSelect }: Props) {
   // Stable skeleton: load the most complete snapshot once, build the forest.
@@ -321,6 +360,16 @@ export default function TreeGraph({ year, yearData, selectedIso, onSelect }: Pro
     const p = pan.current;
     pan.current = null;
     if (p?.moved) e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
+
+  // One delegated handler for all leaves instead of 3,371 per-circle closures —
+  // keeps <LeafDot> props stable so memoisation holds across year scrubs.
+  const onLeafClick = (e: React.MouseEvent) => {
+    const iso = (e.target as Element).closest('[data-iso]')?.getAttribute('data-iso');
+    if (iso) {
+      e.stopPropagation();
+      onSelect(iso);
+    }
   };
 
   const zoomBy = (factor: number) => {
@@ -444,34 +493,20 @@ export default function TreeGraph({ year, yearData, selectedIso, onSelect }: Pro
                   ))}
                 </g>
 
-                <g className="lt-leaves">
-                  {forest.leaves.map((lf) => {
-                    const g = groupOf(byIso, lf.iso);
-                    const dim = sel && lf.fam !== sel ? ' dim' : '';
-                    return (
-                      <circle
-                        key={lf.iso}
-                        className={`leaf grp-${g}${dim}`}
-                        cx={lf.x}
-                        cy={lf.y}
-                        r={lf.r}
-                        style={{
-                          ['--gd' as string]: `${lf.gd.toFixed(2)}s`,
-                          ['--fd' as string]: `${lf.fd.toFixed(2)}s`,
-                          ['--drift' as string]: `${lf.drift.toFixed(0)}px`,
-                          ['--spin' as string]: `${lf.spin.toFixed(0)}deg`,
-                        } as React.CSSProperties}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelect(lf.iso);
-                        }}
-                      >
-                        <title>
-                          {lf.name} · {lf.fam}
-                        </title>
-                      </circle>
-                    );
-                  })}
+                <g className="lt-leaves" onClick={onLeafClick}>
+                  {forest.leaves.map((lf) => (
+                    <LeafDot
+                      key={lf.iso}
+                      iso={lf.iso}
+                      name={lf.name}
+                      fam={lf.fam}
+                      x={lf.x}
+                      y={lf.y}
+                      r={lf.r}
+                      style={lf.style}
+                      cls={`leaf grp-${groupOf(byIso, lf.iso)}${sel && lf.fam !== sel ? ' dim' : ''}`}
+                    />
+                  ))}
                 </g>
 
                 <g className="lt-glabels">

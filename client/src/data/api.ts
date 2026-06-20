@@ -116,6 +116,20 @@ export async function markSent(id: number): Promise<OutreachDraft> {
   return res.json();
 }
 
+// Actually transmits the approved draft to the matched organization's email via
+// the server's SMTP, then records it sent. Distinct from markSent (manual
+// record): use this when the draft has a real institutionEmail. The server
+// returns 400 (no recipient), 503 (SMTP not configured), or 502 (delivery
+// failed) — surfaced here so the admin sees why a send didn't go out.
+export async function sendDraft(id: number): Promise<OutreachDraft> {
+  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/send`, { method: 'POST' });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `API ${res.status}: failed to send draft`);
+  }
+  return res.json();
+}
+
 export async function markReplied(id: number): Promise<OutreachDraft> {
   const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/mark-replied`, { method: 'POST' });
   if (!res.ok) throw new Error(`API ${res.status}: failed to mark draft replied`);

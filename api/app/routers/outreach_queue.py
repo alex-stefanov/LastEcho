@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from .. import store_db, triage
+from .. import mailer, store_db, triage
 from ..config import settings
 from ..data import DataStore
 from ..dependencies import get_db, get_store
@@ -85,6 +85,34 @@ def mark_sent(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> Outr
     return _row_to_draft(_get_or_404(conn, draft_id))
 
 
+@router.post("/{draft_id}/send", response_model=OutreachDraft, summary="Actually send the email via SMTP")
+def send(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> OutreachDraft:
+    """Transmit an approved draft to the matched organization's address, then
+    record it sent. Distinct from mark-sent (which only records a manual send):
+    this one really delivers, so it requires a recipient email and configured
+    SMTP — failing loudly (400/503/502) rather than marking sent on a no-op."""
+    row = _get_or_404(conn, draft_id)
+    if row["status"] != "approved":
+        raise HTTPException(status_code=400, detail="Only approved drafts can be sent")
+    recipient = row["institution_email"]
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail="This draft's institution has no email address — use its contact page and Mark sent instead.",
+        )
+    if not mailer.is_configured(settings):
+        raise HTTPException(
+            status_code=503,
+            detail="Email sending is not configured. Set LASTECHO_SMTP_HOST and LASTECHO_SMTP_FROM (see .env.example).",
+        )
+    try:
+        mailer.send(to=recipient, subject=row["subject"], body=row["body"], settings=settings)
+    except Exception as exc:  # SMTP/connection failure — leave the draft un-sent
+        raise HTTPException(status_code=502, detail=f"Email delivery failed: {exc}")
+    store_db.set_status(conn, draft_id, "sent")
+    return _row_to_draft(_get_or_404(conn, draft_id))
+
+
 @router.post("/{draft_id}/mark-replied", response_model=OutreachDraft, summary="Admin records a reply came in")
 def mark_replied(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> OutreachDraft:
     row = _get_or_404(conn, draft_id)
@@ -120,5 +148,6 @@ def escalate(
         draft_id,
         ror_cache_ttl_days=settings.ror_cache_ttl_days,
         anthropic_api_key=settings.anthropic_api_key,
+        organizations=store.organizations,
     )
     return _row_to_draft(new_row) if new_row else None

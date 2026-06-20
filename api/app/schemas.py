@@ -57,6 +57,21 @@ class InstitutionsFile(BaseModel):
     institutions: list[Institution]
 
 
+# A real, emailable language organization from language_organizations.json.
+# Unlike the hand-verified institutions (whose `email` is usually null), every
+# org here has a deliverable address, so these are the entries the send endpoint
+# can actually transmit to. `cc` is the ISO alpha-2 country code, reverse-geocoded
+# from the coordinates once at load time so matching never re-resolves it.
+class Organization(BaseModel):
+    name: str
+    email: str
+    city: str
+    country: str
+    latitude: float
+    longitude: float
+    cc: Optional[str] = None
+
+
 class OutreachDraft(BaseModel):
     id: int
     languageId: int

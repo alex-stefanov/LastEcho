@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { DraftStatus, OutreachDraft } from './data/api';
+import {
+  approveDraft,
+  escalateDraft,
+  fetchOutreachQueue,
+  markReplied,
+  markSent,
+  rejectDraft,
+  sendDraft,
+  type DraftStatus,
+  type OutreachDraft,
+} from './data/api';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
 
 type AdminViewFilter = 'review' | 'ready' | 'active' | 'closed';
@@ -146,6 +156,13 @@ export default function AdminView() {
   const [drafts, setDrafts] = useState<OutreachDraft[]>(MOCK_DRAFTS);
   const [selectedId, setSelectedId] = useState<number>(MOCK_DRAFTS[0].id);
   const [copied, setCopied] = useState(false);
+  // `live` flips to true once the real outreach queue loads; until then (and if
+  // the API is unreachable) the console runs on MOCK_DRAFTS so the design demo
+  // still works offline. In live mode, actions hit the backend for real —
+  // including the SMTP send.
+  const [live, setLive] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(() =>
     localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark',
   );
@@ -154,6 +171,24 @@ export default function AdminView() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
+
+  // Load the real queue once. A failure leaves the mock demo in place.
+  useEffect(() => {
+    let cancelled = false;
+    fetchOutreachQueue()
+      .then((rows) => {
+        if (cancelled) return;
+        setLive(true);
+        setDrafts(rows);
+        if (rows[0]) setSelectedId(rows[0].id);
+      })
+      .catch(() => {
+        /* API down — keep MOCK_DRAFTS so the console still renders */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const activeFilter = FILTERS.find((item) => item.key === filter) ?? FILTERS[0];
 
@@ -173,7 +208,8 @@ export default function AdminView() {
     [drafts],
   );
 
-  const setStatus = (id: number, status: DraftStatus) => {
+  // Offline/demo path: mutate local state only.
+  const setStatusLocal = (id: number, status: DraftStatus) => {
     setDrafts((items) =>
       items.map((draft) =>
         draft.id === id
@@ -187,6 +223,32 @@ export default function AdminView() {
           : draft,
       ),
     );
+  };
+
+  // In live mode, run the backend action then refetch the queue so the view
+  // reflects server truth — escalate, for instance, marks the current draft
+  // no_reply *and* spawns the next-rung draft, which a local patch can't model.
+  const act = async (
+    id: number,
+    localStatus: DraftStatus,
+    apiCall?: (id: number) => Promise<OutreachDraft | null>,
+  ) => {
+    setError(null);
+    if (!live || !apiCall) {
+      setStatusLocal(id, localStatus);
+      return;
+    }
+    setBusy(true);
+    try {
+      await apiCall(id);
+      const rows = await fetchOutreachQueue();
+      setDrafts(rows);
+      if (!rows.some((r) => r.id === selectedId)) setSelectedId(rows[0]?.id ?? selectedId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Action failed');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const copyDraft = () => {
@@ -311,10 +373,10 @@ export default function AdminView() {
                 <div className="admin-actions-row">
                   {selected.status === 'pending_review' && (
                     <>
-                      <button className="admin-action primary" type="button" onClick={() => setStatus(selected.id, 'approved')}>
+                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'approved', approveDraft)}>
                         Approve
                       </button>
-                      <button className="admin-action" type="button" onClick={() => setStatus(selected.id, 'rejected')}>
+                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, 'rejected', rejectDraft)}>
                         Reject
                       </button>
                     </>
@@ -323,18 +385,23 @@ export default function AdminView() {
                   {selected.status === 'approved' && (
                     <>
                       {selected.institutionEmail ? (
-                        <a className="admin-action primary" href={mailtoFor(selected)}>
-                          Open email
-                        </a>
+                        <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', sendDraft)}>
+                          {busy ? 'Sending…' : 'Send email'}
+                        </button>
                       ) : (
                         <a className="admin-action primary" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">
                           Contact page
                         </a>
                       )}
+                      {selected.institutionEmail && (
+                        <a className="admin-action" href={mailtoFor(selected)}>
+                          Open email
+                        </a>
+                      )}
                       <button className="admin-action" type="button" onClick={copyDraft}>
                         {copied ? 'Copied' : 'Copy'}
                       </button>
-                      <button className="admin-action" type="button" onClick={() => setStatus(selected.id, 'sent')}>
+                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', markSent)}>
                         Mark sent
                       </button>
                     </>
@@ -342,21 +409,23 @@ export default function AdminView() {
 
                   {selected.status === 'sent' && (
                     <>
-                      <button className="admin-action primary" type="button" onClick={() => setStatus(selected.id, 'replied')}>
+                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'replied', markReplied)}>
                         Mark replied
                       </button>
-                      <button className="admin-action" type="button" disabled={!selected.canEscalate} onClick={() => setStatus(selected.id, 'no_reply')}>
+                      <button className="admin-action" type="button" disabled={busy || !selected.canEscalate} onClick={() => act(selected.id, 'no_reply', escalateDraft)}>
                         Escalate
                       </button>
                     </>
                   )}
 
                   {(selected.status === 'replied' || selected.status === 'rejected' || selected.status === 'no_reply') && (
-                    <button className="admin-action" type="button" onClick={() => setStatus(selected.id, 'pending_review')}>
+                    <button className="admin-action" type="button" onClick={() => setStatusLocal(selected.id, 'pending_review')}>
                       Return to review
                     </button>
                   )}
                 </div>
+
+                {error && <p className="admin-error" role="alert">{error}</p>}
               </article>
             )}
           </section>
