@@ -8,11 +8,14 @@ import RotateControl from './components/RotateControl';
 import Nav, { type View } from './components/Nav';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
 import TreeGraph from './components/TreeGraph';
-import { LANGUAGES, statusAt, TODAY, type Vitality } from './data/mockLanguages';
+import { statusAt, TODAY, type LangRecord, type Vitality } from './data/mockLanguages';
+import languagesData from './data/languages.json';
+import { fetchOutreachStatus, type OutreachStatusSummary } from './data/api';
 
 type Filters = Record<Vitality, boolean>;
 
-const THEME_KEY = 'lastecho-theme';
+// Precomputed dataset, bundled at build time — no need to fetch it on load.
+const languages = languagesData.languages as LangRecord[];
 
 export default function App() {
   const [view, setView] = useState<View>('globe');
@@ -25,6 +28,15 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem(THEME_KEY) as Theme) || 'dark',
   );
+  const [outreachStatus, setOutreachStatus] = useState<Record<number, OutreachStatusSummary>>({});
+
+  // Outreach status is a secondary, backend-driven layer — load it
+  // independently and fail quietly if it's not there yet.
+  useEffect(() => {
+    fetchOutreachStatus()
+      .then(setOutreachStatus)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onResize = () => setSize({ w: window.innerWidth, h: window.innerHeight });
@@ -40,9 +52,16 @@ export default function App() {
   // Counts for this year — drives the summary row and the filter legend.
   const counts = useMemo(() => {
     const c: Record<Vitality, number> = { alive: 0, atRisk: 0, lost: 0 };
-    for (const l of LANGUAGES) c[statusAt(l, year)]++;
+    for (const l of languages) c[statusAt(l, year)]++;
     return c;
-  }, [year]);
+  }, [languages, year]);
+
+  const selectedLang = selected === null ? null : languages.find((l) => l.id === selected) ?? null;
+
+  const underOutreach = useMemo(
+    () => Object.values(outreachStatus).filter((o) => o.hasPending || o.hasApproved).length,
+    [outreachStatus],
+  );
 
   return (
     <div className="app">
@@ -50,12 +69,14 @@ export default function App() {
         <>
           <div className="globe-layer">
             <GlobeView
+              languages={languages}
               width={size.w}
               height={size.h}
               year={year}
               filters={filters}
               autoRotate={autoRotate}
               theme={theme}
+              outreachStatus={outreachStatus}
               onUserInteract={() => setAutoRotate(false)}
               onSelect={(id) => setSelected(id)}
             />
@@ -70,6 +91,13 @@ export default function App() {
                 <span className="label">{k === 'atRisk' ? 'At risk' : k}</span>
               </div>
             ))}
+            {underOutreach > 0 && (
+              <div className="metric outreach">
+                <span className="dot" />
+                <span className="value">{underOutreach.toLocaleString()}</span>
+                <span className="label">Under outreach</span>
+              </div>
+            )}
           </div>
 
           <FilterPanel
@@ -80,8 +108,13 @@ export default function App() {
 
           <RotateControl on={autoRotate} onToggle={() => setAutoRotate((v) => !v)} />
 
-          {selected !== null && (
-            <SelectedCard id={selected} year={year} onClose={() => setSelected(null)} />
+          {selectedLang && (
+            <SelectedCard
+              lang={selectedLang}
+              year={year}
+              outreach={outreachStatus[selectedLang.id]}
+              onClose={() => setSelected(null)}
+            />
           )}
         </>
       )}
@@ -94,8 +127,13 @@ export default function App() {
 
       <Timeline year={year} setYear={setYear} playing={playing} setPlaying={setPlaying} />
 
-      {view === 'tree' && selected !== null && (
-        <SelectedCard id={selected} year={year} onClose={() => setSelected(null)} />
+      {view === 'tree' && selectedLang && (
+        <SelectedCard
+          lang={selectedLang}
+          year={year}
+          outreach={outreachStatus[selectedLang.id]}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );
