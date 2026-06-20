@@ -332,11 +332,11 @@ body {
 .scrub {
   position: relative;
   flex: 1;
-  padding-top: 20px;
+  padding-top: 18px;
 }
 .track {
   position: relative;
-  height: 18px;
+  height: 16px;
   display: flex;
   align-items: center;
   z-index: 2;
@@ -346,10 +346,23 @@ body {
   top: 50%;
   left: 0;
   right: 0;
-  height: 4px;
+  height: 3px;
   transform: translateY(-50%);
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--raise-strong);
+}
+
+/* quiet decade ruler marks */
+.grid-tick {
+  position: absolute;
+  top: 50%;
+  width: 1px;
+  height: 7px;
+  transform: translate(-50%, -50%);
+  background: var(--line-strong);
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 1;
 }
 
 /* fills — recorded (alive) then forecast (atrisk) */
@@ -357,10 +370,11 @@ body {
   position: absolute;
   top: 50%;
   left: 0;
-  height: 4px;
+  height: 3px;
   transform: translateY(-50%);
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--alive);
+  z-index: 1;
   transition: width 0.42s cubic-bezier(0.34, 1.4, 0.5, 1);
 }
 .track-fill.future {
@@ -368,33 +382,46 @@ body {
   box-shadow: 0 0 10px rgba(234, 162, 60, 0.3);
 }
 
-/* forecast-start marker — where the ML projection begins */
-.forecast-start {
+/* tinted lane that flags the ML-forecast half of the track */
+.forecast-lane {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  height: 3px;
+  transform: translateY(-50%);
+  border-radius: 0 3px 3px 0;
+  background: rgba(234, 162, 60, 0.12);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* today marker — small label tethered to a tick on the rail */
+.today-mark {
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  z-index: 2;
   pointer-events: none;
+  z-index: 3;
 }
-.fs-tick {
-  width: 1.5px;
-  height: 12px;
+.tm-tick {
+  width: 2px;
+  height: 9px;
   border-radius: 1px;
-  background: var(--atrisk);
+  background: var(--text);
   opacity: 0.55;
 }
-.fs-year {
+.tm-label {
   position: absolute;
-  bottom: calc(100% + 5px);
-  font-family: var(--mono);
-  font-size: 9px;
+  bottom: calc(100% + 4px);
+  font-family: var(--sans);
+  font-size: 8px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--atrisk);
-  opacity: 0.9;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
   white-space: nowrap;
 }
 
@@ -440,44 +467,28 @@ body {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28), 0 0 0 4px rgba(53, 212, 154, 0.4);
 }
 
-/* reserved forecast lane (right of Today) — kept minimal */
-.forecast {
+/* decade scale beneath the rail */
+.scale {
+  position: relative;
+  height: 12px;
+  margin-top: 9px;
+}
+.scale-year {
   position: absolute;
-  top: 50%;
-  right: 0;
-  height: 4px;
-  transform: translateY(-50%);
-  border-radius: 4px;
-  z-index: 1;
-  transition: background 0.4s ease;
-}
-.forecast.locked {
-  background: repeating-linear-gradient(
-    90deg,
-    var(--line-strong) 0 2px,
-    transparent 2px 8px
-  );
-}
-.forecast.live {
-  background: rgba(234, 162, 60, 0.14);
-}
-.forecast-label {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  right: 0;
-  font-family: var(--sans);
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  top: 0;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 9px;
+  letter-spacing: 0.02em;
   color: var(--faint);
-  pointer-events: none;
   white-space: nowrap;
-  transition: color 0.4s ease;
 }
-.forecast.live .forecast-label {
-  color: var(--atrisk);
-  opacity: 0.85;
+.scale-year:first-child {
+  transform: translateX(0);
+}
+.scale-year:last-child {
+  transform: translateX(-100%);
 }
 
 /* run control — quiet neutral pill, accent only while predicting */
@@ -1816,4 +1827,262 @@ body {
 .admin-copy-btn:hover {
   color: var(--ink);
   border-color: rgba(42, 32, 23, 0.55);
+}
+
+/* ============================================================
+   Responsive — tablet condense (≤920px) and mobile reflow (≤700px).
+   The default layout is all absolutely-positioned chrome with fixed
+   widths; these breakpoints pull margins in, shrink panels, and on
+   phones reflow the floating panels into top/bottom bars and sheets.
+   ============================================================ */
+
+@media (max-width: 920px) {
+  .wordmark {
+    top: 20px;
+    left: 18px;
+  }
+  .wordmark .tag {
+    max-width: 220px;
+  }
+
+  .summary {
+    top: 20px;
+  }
+  .summary .metric {
+    padding: 4px 12px;
+  }
+
+  .filter {
+    top: 20px;
+    right: 16px;
+    width: 176px;
+  }
+
+  .nav {
+    left: 18px;
+  }
+  .theme-toggle {
+    left: 18px;
+  }
+
+  .selected {
+    left: 16px;
+  }
+  .rotate-toggle {
+    right: 16px;
+  }
+
+  .ltree-cap {
+    right: 16px;
+    width: 264px;
+  }
+  .lc-title {
+    font-size: 25px;
+  }
+
+  .fallen {
+    left: 16px;
+    width: 212px;
+  }
+
+  .fam-drawer {
+    right: 16px;
+    width: 280px;
+  }
+
+  .tree-zoom-ctrl {
+    right: 14px;
+  }
+
+  .timeline {
+    width: min(860px, 94vw);
+    gap: 16px;
+    padding: 12px 18px;
+  }
+}
+
+@media (max-width: 700px) {
+  /* --- top-left brand: drop the rule + tagline, shrink the title --- */
+  .wordmark {
+    top: 14px;
+    left: 14px;
+  }
+  .wordmark h1 {
+    font-size: 18px;
+  }
+  .wordmark .rule,
+  .wordmark .tag {
+    display: none;
+  }
+
+  /* --- nav tabs slide under the wordmark; theme toggle to top-right --- */
+  .nav {
+    top: 44px;
+    left: 10px;
+  }
+  .nav-tab {
+    padding: 6px 11px;
+    font-size: 10.5px;
+  }
+  .theme-toggle {
+    top: 12px;
+    left: auto;
+    right: 12px;
+  }
+
+  /* --- summary metrics: compact, centered, wrapping under the brand --- */
+  .summary {
+    top: 78px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 94vw;
+    padding: 6px 2px;
+  }
+  .summary .metric {
+    padding: 3px 11px;
+  }
+  .summary .metric .value {
+    font-size: 14px;
+  }
+  .summary .metric .label {
+    font-size: 9px;
+  }
+
+  /* --- vitality filter becomes a horizontal bar above the timeline --- */
+  .filter {
+    top: auto;
+    right: auto;
+    bottom: 96px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: auto;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 7px;
+  }
+  .filter .head {
+    display: none;
+  }
+  .filter .toggle {
+    width: auto;
+    gap: 6px;
+    padding: 5px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .filter .toggle .count {
+    display: none;
+  }
+
+  /* --- selected-language card: bottom sheet above the timeline --- */
+  .selected {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    bottom: 96px;
+    max-height: 48vh;
+    overflow-y: auto;
+  }
+
+  .rotate-toggle {
+    display: none;
+  }
+
+  /* --- timeline: tighter footprint on phones --- */
+  .timeline {
+    width: 94vw;
+    gap: 12px;
+    padding: 10px 14px;
+    bottom: 14px;
+    border-radius: 16px;
+  }
+  .year-block {
+    width: 56px;
+  }
+  .year-block .year {
+    font-size: 20px;
+  }
+  .scrub {
+    padding-top: 18px;
+  }
+  /* only the endpoints fit on a phone-width track */
+  .scale-year {
+    display: none;
+  }
+  .scale-year:first-child,
+  .scale-year:last-child {
+    display: block;
+  }
+  .sim-btn {
+    height: 32px;
+    padding: 0 12px;
+  }
+  .sim-btn span {
+    display: none;
+  }
+
+  /* --- tree view: shrink overlays, drawer becomes a bottom sheet --- */
+  .ltree-stage {
+    inset: 60px 0 84px;
+  }
+  .ltree-cap {
+    top: 84px;
+    right: 10px;
+    width: min(46vw, 210px);
+    padding: 13px 14px 12px;
+  }
+  .lc-title {
+    font-size: 21px;
+  }
+  .lc-sub {
+    display: none;
+  }
+  .lc-legend {
+    gap: 4px;
+    margin-top: 12px;
+  }
+  .lc-chip {
+    min-width: 0;
+    padding: 7px 6px;
+  }
+  .lc-chip .num {
+    font-size: 13px;
+  }
+  .lc-chip .lc-lab {
+    font-size: 7.5px;
+    letter-spacing: 0.04em;
+  }
+
+  .fallen {
+    left: 10px;
+    top: 84px;
+    bottom: 96px;
+    width: min(42vw, 158px);
+    padding: 12px 6px 10px 12px;
+  }
+  .fallen-title {
+    font-size: 13px;
+  }
+  .fallen-name {
+    font-size: 11.5px;
+  }
+
+  .fam-drawer {
+    top: auto;
+    right: 10px;
+    left: 10px;
+    bottom: 92px;
+    width: auto;
+    max-height: 46vh;
+  }
+
+  .tree-zoom-ctrl {
+    right: 10px;
+    bottom: 14px;
+  }
 }
