@@ -6,6 +6,7 @@ import Wordmark from './components/Wordmark';
 import SelectedCard from './components/SelectedCard';
 import RotateControl from './components/RotateControl';
 import Nav, { type View } from './components/Nav';
+import ThemeToggle, { type Theme } from './components/ThemeToggle';
 import TreeGraph from './components/TreeGraph';
 import { statusAt, TODAY, type LangRecord, type Vitality } from './data/mockLanguages';
 import languagesData from './data/languages.json';
@@ -24,6 +25,9 @@ export default function App() {
   const [filters, setFilters] = useState<Filters>({ alive: true, atRisk: true, lost: true });
   const [selected, setSelected] = useState<number | null>(null);
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem(THEME_KEY) as Theme) || 'dark',
+  );
   const [outreachStatus, setOutreachStatus] = useState<Record<number, OutreachStatusSummary>>({});
 
   // Outreach status is a secondary, backend-driven layer — load it
@@ -39,6 +43,11 @@ export default function App() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
 
   // Counts for this year — drives the summary row and the filter legend.
   const counts = useMemo(() => {
@@ -66,6 +75,7 @@ export default function App() {
               year={year}
               filters={filters}
               autoRotate={autoRotate}
+              theme={theme}
               outreachStatus={outreachStatus}
               onUserInteract={() => setAutoRotate(false)}
               onSelect={(id) => setSelected(id)}
@@ -113,6 +123,7 @@ export default function App() {
 
       <Wordmark />
       <Nav view={view} onChange={setView} />
+      <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
 
       <Timeline year={year} setYear={setYear} playing={playing} setPlaying={setPlaying} />
 
