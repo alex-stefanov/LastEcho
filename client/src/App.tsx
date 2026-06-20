@@ -13,7 +13,7 @@ import languagesData from './data/languages.json';
 import { fetchOutreachStatus, type OutreachStatusSummary } from './data/api';
 
 type Filters = Record<Vitality, boolean>;
-
+const THEME_KEY = 'lastecho-theme';
 // Precomputed dataset, bundled at build time — no need to fetch it on load.
 const languages = languagesData.languages as LangRecord[];
 
