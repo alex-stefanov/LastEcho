@@ -632,6 +632,70 @@ body {
   font-weight: 500;
 }
 
+/* cluster card ------------------------------------------------------------ */
+.cluster-card {
+  width: 280px;
+}
+.cluster-card__sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 6px 0 10px;
+  line-height: 1.4;
+}
+.cluster-card__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.cluster-card__list::-webkit-scrollbar { width: 4px; }
+.cluster-card__list::-webkit-scrollbar-track { background: transparent; }
+.cluster-card__list::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 2px; }
+.cluster-card__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.cluster-card__row:hover {
+  background: var(--raise-strong);
+}
+.cluster-card__row + .cluster-card__row {
+  border-top: 1px solid var(--line);
+}
+.cluster-card__dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.cluster-card__name {
+  flex: 1;
+  font-size: 12.5px;
+  font-family: var(--serif);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cluster-card__pill {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: var(--raise);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
 /* response status (read-only — backend's own outreach decisions) ---------- */
 .selected .response {
   margin-top: 14px;
@@ -1512,6 +1576,196 @@ body {
   padding: 20px 22px;
 }
 
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: none;
+}
+
+.admin-session-label {
+  max-width: 180px;
+  overflow: hidden;
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-logout {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 2px;
+  background: var(--admin-surface-soft);
+  color: var(--admin-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-logout:hover {
+  border-color: var(--admin-line-strong);
+  background: var(--admin-surface-raised);
+}
+
+.admin-login-page {
+  display: grid;
+  place-items: center;
+}
+
+.admin-login-shell {
+  width: min(980px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 390px;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.admin-login-copy,
+.admin-login-card {
+  border: 1px solid var(--admin-line);
+  border-radius: 4px;
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow);
+}
+
+.admin-login-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 430px;
+  padding: clamp(24px, 5vw, 46px);
+}
+
+.admin-login-eyebrow {
+  margin-bottom: 12px;
+  color: var(--admin-accent-strong);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.admin-login-copy h1 {
+  margin: 0;
+  color: var(--admin-heading);
+  font-family: var(--serif);
+  font-size: clamp(42px, 6vw, 76px);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 0.96;
+}
+
+.admin-login-copy p {
+  max-width: 520px;
+  margin: 18px 0 0;
+  color: var(--admin-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.admin-login-card {
+  padding: 22px;
+}
+
+.admin-login-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--admin-line);
+}
+
+.admin-login-head h2 {
+  margin: 0;
+  color: var(--admin-heading);
+  font-family: var(--serif);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.admin-login-head p {
+  margin: 7px 0 0;
+  color: var(--admin-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.admin-login-field {
+  display: block;
+  margin-top: 18px;
+}
+
+.admin-login-field span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--admin-accent-strong);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.admin-login-field input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--admin-line-strong);
+  border-radius: 2px;
+  outline: none;
+  background: var(--admin-surface-soft);
+  color: var(--admin-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.admin-login-field input:focus {
+  border-color: var(--admin-accent-strong);
+  background: var(--admin-surface);
+}
+
+.admin-login-field input::placeholder {
+  color: var(--admin-faint);
+}
+
+.admin-login-error {
+  margin: 14px 0 0;
+  padding: 10px 11px;
+  border-left: 3px solid var(--admin-danger);
+  background: var(--admin-surface-soft);
+  color: var(--admin-danger);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.admin-login-submit {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 18px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: var(--admin-accent-strong);
+  color: #08130f;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+:root[data-theme='light'] .admin-login-submit {
+  color: #ffffff;
+}
+
+.admin-login-submit:hover {
+  background: var(--admin-accent);
+}
+
 .admin .theme-toggle {
   position: static;
   flex: none;
@@ -1623,7 +1877,7 @@ body {
   align-items: center;
   gap: 24px;
   overflow-x: auto;
-  min-height: 45px;
+  min-height: 42px;
   padding: 0 2px;
   border-bottom: 1px solid var(--admin-line);
 }
@@ -1991,13 +2245,24 @@ body {
   }
 }
 
+@media (max-width: 760px) {
+  .admin-login-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-login-copy {
+    min-height: 250px;
+  }
+}
+
 @media (max-width: 640px) {
   .admin {
     padding: 12px;
   }
 
   .admin-topbar,
-  .admin-panel-sheet {
+  .admin-panel-sheet,
+  .admin-login-card {
     padding: 18px;
   }
 
@@ -2006,10 +2271,20 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .admin-topbar,
   .admin-detail-head,
   .admin-check-row {
     grid-template-columns: 1fr;
     flex-direction: column;
+  }
+
+  .admin-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .admin-session-label {
+    max-width: 130px;
   }
 
   .admin-actions-row {
