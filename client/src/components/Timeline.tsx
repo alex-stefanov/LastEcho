@@ -1,23 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TODAY } from '../data/mockLanguages';
+import { TL_TODAY, TL_MAX_YEAR } from '../data/timeline';
 
 interface Props {
   year: number;
   setYear: React.Dispatch<React.SetStateAction<number>>;
   playing: boolean;
   setPlaying: React.Dispatch<React.SetStateAction<boolean>>;
+  // Whether the currently-selected year's snapshot has loaded. Run won't step
+  // onto the next year until the current one has been granted (loaded).
+  ready: boolean;
 }
+
+const TODAY = TL_TODAY; // 2024 — last observed year
 
 // Recorded snapshots — the only selectable years in the past.
 const RECORDED = [
-  { year: 2018, label: 'Past' },
-  { year: 2020, label: 'Recent' },
+  { year: 2000, label: 'Past' },
+  { year: 2012, label: 'Recent' },
   { year: TODAY, label: 'Today' }, // 2024
 ] as const;
 const RECORDED_YEARS: number[] = RECORDED.map((m) => m.year);
 
-// Forecast horizon — the right-hand lane the ML simulation fills in.
-const HORIZON = 2045;
+// Forecast horizon — the right-hand lane the ML scenario fills in.
+const HORIZON = TL_MAX_YEAR; // 2050
 const DMIN = RECORDED_YEARS[0];
 // ML forecast begins after this year: on/before it the run is green, after it orange.
 const SPLIT = 2025;
@@ -46,7 +51,7 @@ function nextYear(y: number): number {
   return Math.min(HORIZON, y + 1);
 }
 
-export default function Timeline({ year, setYear, playing, setPlaying }: Props) {
+export default function Timeline({ year, setYear, playing, setPlaying, ready }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   // Once the run crosses into the future, the forecast lane is "live" and the
@@ -62,21 +67,22 @@ export default function Timeline({ year, setYear, playing, setPlaying }: Props) 
   // The run loop. Reschedules itself after every step, pausing briefly on the
   // recorded stops and then stepping year-by-year through the ML forecast.
   // Crucially it keys off the *current* year, so Run always continues from
-  // wherever the thumb already is — never from the beginning.
+  // wherever the thumb already is — never from the beginning. It also waits on
+  // `ready`: a step is only scheduled once the current year's snapshot has
+  // loaded, so the globe is never asked to show a year it doesn't yet have.
   useEffect(() => {
     if (!playing) return;
     if (year >= HORIZON) {
       setPlaying(false);
       return;
     }
-    const delay = year < TODAY ? 650 : 150;
+    if (!ready) return; // hold until the current year is loaded
+    const delay = year < TODAY ? 1400 : 1100;
     const id = setTimeout(() => {
-      // TODO(ml): for years past Today, fetch the model's projection for
-      // nextYear(year) here and feed its per-language vitality to the globe.
       setYear((y) => nextYear(y));
     }, delay);
     return () => clearTimeout(id);
-  }, [playing, year, setYear, setPlaying]);
+  }, [playing, year, ready, setYear, setPlaying]);
 
   // Resolve a raw year to a *selectable* one: snap to a stop in the past, free
   // scrubbing through the forecast — but only once it has been simulated.

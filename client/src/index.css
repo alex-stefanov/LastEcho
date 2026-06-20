@@ -189,14 +189,20 @@ body {
   height: 7px;
   border-radius: 50%;
 }
-.metric.alive .dot {
-  background: var(--alive);
+.metric.grp-healthy .dot {
+  background: #35d49a;
 }
-.metric.atRisk .dot {
-  background: var(--atrisk);
+.metric.grp-watch .dot {
+  background: #e8c34a;
 }
-.metric.lost .dot {
-  background: var(--lost);
+.metric.grp-serious .dot {
+  background: #ef5b3f;
+}
+.metric.grp-gone .dot {
+  background: #5d6878;
+}
+.metric.grp-unknown .dot {
+  background: #8d7fce;
 }
 .metric.outreach .dot {
   background: var(--signal-approved);
@@ -784,6 +790,9 @@ body {
 .lang-marker:hover .lm-label {
   opacity: 1;
 }
+
+/* Density clusters are now GPU canvas-texture sprites drawn directly into the
+   WebGL scene (see GlobeView.tsx), not DOM elements — no CSS needed for them. */
 
 /* rotation toggle (bottom right) ------------------------------------------ */
 .rotate-toggle {

@@ -1,0 +1,147 @@
+// ---------------------------------------------------------------------------
+// LastEcho — per-year timeline data.
+//
+// The globe's extinction-risk layer is driven by the real, per-year snapshots
+// in ./timeline_by_year/{year}.json (2000–2050, ~3,300 languages each). Those
+// files are ~29 MB in total, so they are NOT bundled: Vite's import.meta.glob
+// gives one lazily-loaded, code-split chunk per year, fetched straight from the
+// client data folder on demand and cached by the browser.
+//
+// We additionally cache the parsed result in memory so scrubbing back to a year
+// already visited is instant and never re-fetches — this is the "show a year"
+// gate: a year is only rendered once its snapshot has been loaded.
+// ---------------------------------------------------------------------------
+
+import metadata from './timeline_by_year/metadata.json';
+
+// The real per-year snapshots carry an 8-level vitality scale (`risk`), each
+// already mapped to one of 5 broad groups (`vitality_group`) by the data
+// pipeline — this is the grouping the globe's color and filters key off, not
+// the old 3-bucket mock Vitality type (which still drives the unrelated Tree
+// view's separate dataset).
+export type YearRisk =
+  | 'alive'
+  | 'stable'
+  | 'recovering'
+  | 'vulnerable'
+  | 'at_risk'
+  | 'critical'
+  | 'lost'
+  | 'unknown';
+
+export type VitalityGroup = 'healthy' | 'watch' | 'serious' | 'gone' | 'unknown';
+
+export interface YearLang {
+  iso_code: string;
+  name: string;
+  speakers: number | null;
+  risk: YearRisk;
+  vitality_group: VitalityGroup;
+  series_type: string;
+  family_root: string;
+  latitude_map: number | null;
+  longitude_map: number | null;
+}
+
+export interface YearData {
+  year: number;
+  language_count: number;
+  languages: YearLang[];
+}
+
+export const TL_MIN_YEAR = metadata.min_year; // 2000
+export const TL_MAX_YEAR = metadata.max_year; // 2050
+// Last observed / benchmark year — everything past it is the scenario forecast.
+export const TL_TODAY = 2024;
+export const FORECAST_START = TL_TODAY + 1; // 2025
+
+// One lazy import per snapshot. import.meta.glob is lazy by default (it returns
+// loader functions, not the data), so each year becomes its own chunk.
+const loaders = import.meta.glob('./timeline_by_year/*.json') as Record<
+  string,
+  () => Promise<{ default: YearData }>
+>;
+
+const byYear = new Map<number, () => Promise<{ default: YearData }>>();
+for (const path in loaders) {
+  const m = path.match(/(\d{4})\.json$/); // skip metadata.json
+  if (m) byYear.set(Number(m[1]), loaders[path]);
+}
+
+const cache = new Map<number, YearData>();
+
+export function hasYear(year: number): boolean {
+  return byYear.has(year);
+}
+
+export function getCachedYear(year: number): YearData | undefined {
+  return cache.get(year);
+}
+
+// Fetch (or return cached) one year's snapshot. Resolving this is what grants a
+// year permission to be shown on the globe.
+export async function loadYear(year: number): Promise<YearData> {
+  const hit = cache.get(year);
+  if (hit) return hit;
+  const loader = byYear.get(year);
+  if (!loader) throw new Error(`No timeline snapshot for ${year}`);
+  const mod = await loader();
+  cache.set(year, mod.default);
+  return mod.default;
+}
+
+// Display order, worst-to-... actually best-to-worst-then-unknown — used for
+// filter rows and tie-breaking the dominant group in a cluster.
+export const GROUP_ORDER: VitalityGroup[] = ['healthy', 'watch', 'serious', 'gone', 'unknown'];
+
+export const GROUP_LABEL: Record<VitalityGroup, string> = {
+  healthy: 'Healthy',
+  watch: 'Watch',
+  serious: 'Serious',
+  gone: 'Gone',
+  unknown: 'Unknown',
+};
+
+export const LEVEL_LABEL: Record<YearRisk, string> = {
+  alive: 'Alive',
+  stable: 'Stable',
+  recovering: 'Recovering',
+  vulnerable: 'Vulnerable',
+  at_risk: 'At risk',
+  critical: 'Critical',
+  lost: 'Lost',
+  unknown: 'Unknown',
+};
+
+export function countByGroup(data: YearData): Record<VitalityGroup, number> {
+  const c: Record<VitalityGroup, number> = { healthy: 0, watch: 0, serious: 0, gone: 0, unknown: 0 };
+  for (const l of data.languages) c[l.vitality_group]++;
+  return c;
+}
+
+// Globe palette, one hue per group — the primary visual signal, since this is
+// the grouping the data itself defines (vitality_group), not the old 3-bucket
+// mock Vitality scale used by the unrelated Tree view.
+export const GROUP_COLOR: Record<VitalityGroup, string> = {
+  healthy: '#35d49a',
+  watch: '#e8c34a',
+  serious: '#ef5b3f',
+  gone: '#5d6878',
+  unknown: '#8d7fce',
+};
+
+// Within a group, severity still varies by level (e.g. watch's only level is
+// "vulnerable", but "serious" spans at_risk → critical). This drives how big
+// a glow/halo a point gets around its core dot — a second, independent visual
+// channel from color, so two languages in the same group still read apart
+// instead of looking identical just because they share a hue.
+export const LEVEL_URGENCY: Record<YearRisk, number> = {
+  alive: 1,
+  stable: 1.1,
+  recovering: 1.3,
+  vulnerable: 1.5,
+  at_risk: 1.9,
+  critical: 2.5,
+  lost: 1.15,
+  unknown: 1,
+};

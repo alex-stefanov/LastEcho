@@ -1,34 +1,70 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import GlobeView from './components/GlobeView';
 import FilterPanel from './components/FilterPanel';
 import Timeline from './components/Timeline';
 import Wordmark from './components/Wordmark';
 import SelectedCard from './components/SelectedCard';
+import YearLangCard from './components/YearLangCard';
 import RotateControl from './components/RotateControl';
 import Nav, { type View } from './components/Nav';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
 import TreeGraph from './components/TreeGraph';
-import { statusAt, TODAY, type LangRecord, type Vitality } from './data/mockLanguages';
+import { type LangRecord } from './data/mockLanguages';
 import languagesData from './data/languages.json';
+import {
+  countByGroup,
+  GROUP_LABEL,
+  GROUP_ORDER,
+  getCachedYear,
+  loadYear,
+  TL_TODAY,
+  type VitalityGroup,
+  type YearData,
+} from './data/timeline';
 import { fetchOutreachStatus, type OutreachStatusSummary } from './data/api';
 
-type Filters = Record<Vitality, boolean>;
+type Filters = Record<VitalityGroup, boolean>;
 const THEME_KEY = 'lastecho-theme';
-// Precomputed dataset, bundled at build time — no need to fetch it on load.
+const EMPTY_COUNTS: Record<VitalityGroup, number> = { healthy: 0, watch: 0, serious: 0, gone: 0, unknown: 0 };
+const ALL_GROUPS_ON: Filters = { healthy: true, watch: true, serious: true, gone: true, unknown: true };
+// The tree view still runs on the precomputed, bundled dataset.
 const languages = languagesData.languages as LangRecord[];
 
 export default function App() {
   const [view, setView] = useState<View>('globe');
-  const [year, setYear] = useState(TODAY);
+  const [year, setYear] = useState(TL_TODAY);
   const [playing, setPlaying] = useState(false);
   const [autoRotate, setAutoRotate] = useState(true);
-  const [filters, setFilters] = useState<Filters>({ alive: true, atRisk: true, lost: true });
+  const [filters, setFilters] = useState<Filters>(ALL_GROUPS_ON);
+  const [selectedIso, setSelectedIso] = useState<string | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem(THEME_KEY) as Theme) || 'dark',
   );
   const [outreachStatus, setOutreachStatus] = useState<Record<number, OutreachStatusSummary>>({});
+
+  // The currently *shown* year snapshot. It only updates once the year's data
+  // has loaded, so the globe never renders a year it hasn't been granted.
+  const [yearData, setYearData] = useState<YearData | null>(() => getCachedYear(TL_TODAY) ?? null);
+  const loadToken = useRef(0);
+  const ready = yearData?.year === year;
+
+  // Load (or reuse cached) the snapshot for the selected year. A stale-token
+  // guard keeps fast scrubbing from showing an out-of-order resolved year.
+  useEffect(() => {
+    const cached = getCachedYear(year);
+    if (cached) {
+      setYearData(cached);
+      return;
+    }
+    const token = ++loadToken.current;
+    loadYear(year)
+      .then((data) => {
+        if (token === loadToken.current) setYearData(data);
+      })
+      .catch(() => {});
+  }, [year]);
 
   // Outreach status is a secondary, backend-driven layer — load it
   // independently and fail quietly if it's not there yet.
@@ -49,12 +85,16 @@ export default function App() {
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
-  // Counts for this year — drives the summary row and the filter legend.
-  const counts = useMemo(() => {
-    const c: Record<Vitality, number> = { alive: 0, atRisk: 0, lost: 0 };
-    for (const l of languages) c[statusAt(l, year)]++;
-    return c;
-  }, [languages, year]);
+  // Counts for the shown year — drives the summary row and the filter legend.
+  const counts = useMemo(
+    () => (yearData ? countByGroup(yearData) : EMPTY_COUNTS),
+    [yearData],
+  );
+
+  const selectedYearLang = useMemo(
+    () => (selectedIso && yearData ? yearData.languages.find((l) => l.iso_code === selectedIso) ?? null : null),
+    [selectedIso, yearData],
+  );
 
   const selectedLang = selected === null ? null : languages.find((l) => l.id === selected) ?? null;
 
@@ -69,26 +109,24 @@ export default function App() {
         <>
           <div className="globe-layer">
             <GlobeView
-              languages={languages}
+              yearLangs={yearData?.languages ?? []}
               width={size.w}
               height={size.h}
-              year={year}
               filters={filters}
               autoRotate={autoRotate}
               theme={theme}
-              outreachStatus={outreachStatus}
               onUserInteract={() => setAutoRotate(false)}
-              onSelect={(id) => setSelected(id)}
+              onSelect={(iso) => setSelectedIso(iso)}
             />
           </div>
           <div className="vignette" />
 
           <div className="summary panel">
-            {(['alive', 'atRisk', 'lost'] as Vitality[]).map((k) => (
-              <div key={k} className={`metric ${k}`}>
+            {GROUP_ORDER.map((k) => (
+              <div key={k} className={`metric grp-${k}`}>
                 <span className="dot" />
                 <span className="value">{counts[k].toLocaleString()}</span>
-                <span className="label">{k === 'atRisk' ? 'At risk' : k}</span>
+                <span className="label">{GROUP_LABEL[k]}</span>
               </div>
             ))}
             {underOutreach > 0 && (
@@ -108,12 +146,11 @@ export default function App() {
 
           <RotateControl on={autoRotate} onToggle={() => setAutoRotate((v) => !v)} />
 
-          {selectedLang && (
-            <SelectedCard
-              lang={selectedLang}
+          {selectedYearLang && (
+            <YearLangCard
+              lang={selectedYearLang}
               year={year}
-              outreach={outreachStatus[selectedLang.id]}
-              onClose={() => setSelected(null)}
+              onClose={() => setSelectedIso(null)}
             />
           )}
         </>
@@ -125,7 +162,7 @@ export default function App() {
       <Nav view={view} onChange={setView} />
       <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
 
-      <Timeline year={year} setYear={setYear} playing={playing} setPlaying={setPlaying} />
+      <Timeline year={year} setYear={setYear} playing={playing} setPlaying={setPlaying} ready={ready} />
 
       {view === 'tree' && selectedLang && (
         <SelectedCard
