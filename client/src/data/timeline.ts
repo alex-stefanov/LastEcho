@@ -51,8 +51,8 @@ export interface YearData {
 export const TL_MIN_YEAR = metadata.min_year; // 2000
 export const TL_MAX_YEAR = metadata.max_year; // 2050
 // Last observed / benchmark year — everything past it is the scenario forecast.
-export const TL_TODAY = 2024;
-export const FORECAST_START = TL_TODAY + 1; // 2025
+export const TL_TODAY = 2026;
+export const FORECAST_START = TL_TODAY + 1; // 2027
 
 // One lazy import per snapshot. import.meta.glob is lazy by default (it returns
 // loader functions, not the data), so each year becomes its own chunk.
