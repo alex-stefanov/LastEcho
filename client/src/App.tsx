@@ -3,15 +3,14 @@ import GlobeView from './components/GlobeView';
 import FilterPanel from './components/FilterPanel';
 import Timeline from './components/Timeline';
 import Wordmark from './components/Wordmark';
-import SelectedCard from './components/SelectedCard';
 import YearLangCard from './components/YearLangCard';
 import ClusterCard from './components/ClusterCard';
 import RotateControl from './components/RotateControl';
 import Nav, { type View } from './components/Nav';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
 import TreeGraph from './components/TreeGraph';
-import { type LangRecord } from './data/mockLanguages';
-import languagesData from './data/languages.json';
+import RescueQueue from './components/RescueQueue';
+import { DEFAULT_WEIGHTS, type TriageWeights } from './data/triage';
 import {
   countByGroup,
   GROUP_COLOR,
@@ -30,8 +29,6 @@ type Filters = Record<VitalityGroup, boolean>;
 const THEME_KEY = 'lastecho-theme';
 const EMPTY_COUNTS: Record<VitalityGroup, number> = { healthy: 0, watch: 0, serious: 0, gone: 0, unknown: 0 };
 const ALL_GROUPS_ON: Filters = { healthy: true, watch: true, serious: true, gone: true, unknown: true };
-const languages = languagesData.languages as LangRecord[];
-
 export default function App() {
   const [view, setView] = useState<View>('globe');
   const [year, setYear] = useState(TL_TODAY);
@@ -41,12 +38,12 @@ export default function App() {
   const [selectedIso, setSelectedIso] = useState<string | null>(null);
   // Store only ISOs so the panel re-derives vitality data whenever the year changes.
   const [selectedClusterIsos, setSelectedClusterIsos] = useState<string[] | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem(THEME_KEY) as Theme) || 'dark',
   );
   const [outreachStatus, setOutreachStatus] = useState<Record<number, OutreachStatusSummary>>({});
+  const [triageWeights, setTriageWeights] = useState<TriageWeights>(DEFAULT_WEIGHTS);
 
   // The currently *shown* year snapshot. It only updates once the year's data
   // has loaded, so the globe never renders a year it hasn't been granted.
@@ -113,9 +110,6 @@ export default function App() {
     return members.length > 0 ? members : null;
   }, [selectedClusterIsos, yearData]);
 
-  const selectedLang = selected === null ? null : languages.find((l) => l.id === selected) ?? null;
-
-
   const underOutreach = useMemo(
     () => Object.values(outreachStatus).filter((o) => o.hasPending || o.hasApproved).length,
     [outreachStatus],
@@ -162,6 +156,16 @@ export default function App() {
             counts={counts}
             onToggle={(k) => setFilters((f) => ({ ...f, [k]: !f[k] }))}
           />
+
+          {yearData && (
+            <RescueQueue
+              languages={yearData.languages}
+              weights={triageWeights}
+              onWeightsChange={setTriageWeights}
+              selectedIso={selectedIso}
+              onSelect={(iso) => { setSelectedIso(iso); setSelectedClusterIsos(null); }}
+            />
+          )}
 
           <RotateControl on={autoRotate} onToggle={() => setAutoRotate((v) => !v)} />
 

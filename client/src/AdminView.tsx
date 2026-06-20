@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   approveDraft,
   escalateDraft,
@@ -9,10 +9,33 @@ import {
   sendDraft,
   type DraftStatus,
   type OutreachDraft,
+  type OutreachTier,
 } from './data/api';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
 
 type AdminViewFilter = 'review' | 'ready' | 'active' | 'closed';
+type AdminSort = 'priority' | 'oldest' | 'newest';
+
+const TIER_RANK: Record<OutreachTier, number> = { global: 3, continental: 2, local: 1 };
+
+const SORTS: { key: AdminSort; label: string }[] = [
+  { key: 'priority', label: 'Priority' },
+  { key: 'oldest', label: 'Oldest' },
+  { key: 'newest', label: 'Newest' },
+];
+
+function priorityScore(d: OutreachDraft): number {
+  const tier = TIER_RANK[d.tier] ?? 1;
+  const ageDays = (Date.now() - new Date(d.createdAt).getTime()) / 86_400_000;
+  return tier * 10_000 + ageDays;
+}
+
+function sortDrafts(drafts: OutreachDraft[], mode: AdminSort): OutreachDraft[] {
+  const copy = [...drafts];
+  if (mode === 'priority') return copy.sort((a, b) => priorityScore(b) - priorityScore(a));
+  const t = (d: OutreachDraft) => new Date(d.createdAt).getTime();
+  return copy.sort((a, b) => (mode === 'oldest' ? t(a) - t(b) : t(b) - t(a)));
+}
 
 const THEME_KEY = 'lastecho-theme';
 const ADMIN_SESSION_KEY = 'lastecho-admin-session';
@@ -218,6 +241,7 @@ function AdminLogin({ theme, onToggleTheme, onLogin }: AdminLoginProps) {
 
 export default function AdminView() {
   const [filter, setFilter] = useState<AdminViewFilter>('review');
+  const [sortMode, setSortMode] = useState<AdminSort>('priority');
   const [drafts, setDrafts] = useState<OutreachDraft[]>(MOCK_DRAFTS);
   const [selectedId, setSelectedId] = useState<number>(MOCK_DRAFTS[0].id);
   const [copied, setCopied] = useState(false);
@@ -246,7 +270,12 @@ export default function AdminView() {
   }, []);
 
   const activeFilter = FILTERS.find((item) => item.key === filter) ?? FILTERS[0];
-  const visibleDrafts = useMemo(() => drafts.filter((draft) => activeFilter.statuses.includes(draft.status)), [drafts, activeFilter]);
+
+  const visibleDrafts = useMemo(
+    () => sortDrafts(drafts.filter((draft) => activeFilter.statuses.includes(draft.status)), sortMode),
+    [drafts, activeFilter, sortMode],
+  );
+
   const selected = drafts.find((draft) => draft.id === selectedId) ?? visibleDrafts[0] ?? null;
 
   const stats = useMemo(() => ({
@@ -256,7 +285,13 @@ export default function AdminView() {
   }), [drafts]);
 
   const setStatusLocal = (id: number, status: DraftStatus) => {
-    setDrafts((items) => items.map((draft) => draft.id === id ? { ...draft, status, decidedAt: status === 'approved' || status === 'rejected' ? new Date().toISOString() : draft.decidedAt, sentAt: status === 'sent' ? new Date().toISOString() : draft.sentAt, canEscalate: status === 'sent' ? draft.canEscalate : false } : draft));
+    setDrafts((items) => items.map((draft) => draft.id === id ? {
+      ...draft,
+      status,
+      decidedAt: status === 'approved' || status === 'rejected' ? new Date().toISOString() : draft.decidedAt,
+      sentAt: status === 'sent' ? new Date().toISOString() : draft.sentAt,
+      canEscalate: status === 'sent' ? draft.canEscalate : false,
+    } : draft));
   };
 
   const act = async (id: number, localStatus: DraftStatus, apiCall?: (id: number) => Promise<OutreachDraft | null>) => {
@@ -316,23 +351,60 @@ export default function AdminView() {
           <article className="admin-metric-card"><span>Sent</span><strong>{stats.sent}</strong></article>
         </section>
 
-        <nav className="admin-tabs" aria-label="Outreach filters">
-          {FILTERS.map((item) => (
-            <button key={item.key} className={`admin-tab ${filter === item.key ? 'active' : ''}`} type="button" onClick={() => { setFilter(item.key); setSelectedId((current) => { const nextVisible = drafts.filter((d) => item.statuses.includes(d.status)); return nextVisible.some((d) => d.id === current) ? current : nextVisible[0]?.id ?? current; }); }}>{item.label}</button>
-          ))}
-        </nav>
+        <div className="admin-controls">
+          <nav className="admin-tabs" aria-label="Outreach filters">
+            {FILTERS.map((item) => (
+              <button
+                key={item.key}
+                className={`admin-tab ${filter === item.key ? 'active' : ''}`}
+                type="button"
+                onClick={() => {
+                  setFilter(item.key);
+                  setSelectedId((current) => {
+                    const nextVisible = drafts.filter((draft) => item.statuses.includes(draft.status));
+                    return nextVisible.some((draft) => draft.id === current) ? current : nextVisible[0]?.id ?? current;
+                  });
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="admin-sort" aria-label="Sort order">
+            <span className="admin-sort-label">Sort</span>
+            {SORTS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className={`admin-sort-btn ${sortMode === s.key ? 'active' : ''}`}
+                onClick={() => setSortMode(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <section className="admin-workspace">
           <aside className="admin-queue" aria-label="Outreach queue">
             <div className="admin-section-head"><span>Queue</span><strong>{visibleDrafts.length}</strong></div>
             {visibleDrafts.length === 0 && <div className="admin-empty">No drafts here.</div>}
-            {visibleDrafts.map((draft) => (
-              <button key={draft.id} type="button" className={`admin-queue-card ${selected?.id === draft.id ? 'active' : ''}`} onClick={() => setSelectedId(draft.id)}>
+
+            {visibleDrafts.map((draft, i) => (
+              <button
+                key={draft.id}
+                type="button"
+                className={`admin-queue-card ${selected?.id === draft.id ? 'active' : ''}`}
+                onClick={() => setSelectedId(draft.id)}
+              >
                 <span className={`admin-status-line tone-${toneFor(draft.status)}`} />
+                <span className="admin-queue-index">{i + 1}</span>
                 <span className="admin-queue-main">
                   <span className="admin-queue-title">{draft.languageName}</span>
                   <span className="admin-queue-org">{draft.institutionName}</span>
                 </span>
+                <span className={`admin-queue-tier tier-${draft.tier}`}>{draft.tier}</span>
               </button>
             ))}
           </aside>
@@ -359,7 +431,10 @@ export default function AdminView() {
                   )}
                   {selected.status === 'approved' && (
                     <>
-                      {selected.institutionEmail ? (<button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>) : (<a className="admin-action primary" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">Contact page</a>)}
+                      {selected.institutionEmail
+                        ? <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>
+                        : <a className="admin-action primary" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">Contact page</a>
+                      }
                       {selected.institutionEmail && <a className="admin-action" href={mailtoFor(selected)}>Open email</a>}
                       <button className="admin-action" type="button" onClick={copyDraft}>{copied ? 'Copied' : 'Copy'}</button>
                       <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', markSent)}>Mark sent</button>
