@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Local env overrides
+.env
+
+# Outreach queue + national-tier lookup cache — process state, not source data
+data/lastecho.db
+data/lastecho.db-*

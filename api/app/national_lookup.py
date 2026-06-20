@@ -1,0 +1,118 @@
+"""National tier — live institution discovery from a language's lat/lng.
+
+This is what lets the matcher cover any coordinate on Earth, not just the 10
+hand-picked hotspots: reverse-geocode the point to a country (offline, no API
+key), then query the ROR (Research Organization Registry) registry, filtered
+to that country, for real research/government/education organizations whose
+name suggests language work.
+
+Verified live against api.ror.org: `filter=country.country_code:NG` for a
+query of "indigenous languages" returns the National Institute for Nigerian
+Languages — independently corroborating the hand-curated regional seed entry
+for the same country. ROR is a real, neutral registry used by ORCID/Crossref/
+funders; results here are tagged "auto-discovered" rather than "verified"
+precisely because this is an automatic match, not a human-checked one.
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Any
+
+import httpx
+import reverse_geocoder as rg
+
+ROR_URL = "https://api.ror.org/v2/organizations"
+QUERY_TERMS = ["indigenous languages", "endangered languages", "linguistics"]
+# ROR v2 lowercases its `types` values (e.g. "education", not "Education").
+RELEVANT_TYPES = {"government", "education", "facility", "nonprofit"}
+KEYWORD_BOOST = (
+    "indigenous", "endangered", "national institute", "academy of language",
+    "linguistic", "national language", "minority language",
+)
+# Real ROR entries that match on keywords but aren't relevant here (commercial
+# language schools, not institutions that could help document a language).
+KEYWORD_BLOCK = ("school of languages", "language school", "language academy ltd")
+
+# Ocean/remote-point sanity check: reverse_geocoder always snaps to *some*
+# land point, even mid-ocean. If the match is implausibly far from the query,
+# treat the country as unresolved rather than trust a misleading snap.
+MAX_SNAP_KM = 300.0
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def country_for(lat: float, lng: float) -> str | None:
+    """Reverse-geocode to an ISO alpha-2 country code, or None if unreliable."""
+    [match] = rg.search([(lat, lng)])
+    dist = _haversine_km(lat, lng, float(match["lat"]), float(match["lon"]))
+    if dist > MAX_SNAP_KM:
+        return None
+    cc = match.get("cc")
+    return cc or None
+
+
+def _display_name(org: dict[str, Any]) -> str:
+    """ROR v2 stores names as a list of {lang, types, value} entries — the
+    canonical display name is the one tagged "ror_display", not a flat field."""
+    for entry in org.get("names", []):
+        if "ror_display" in entry.get("types", []):
+            return entry["value"]
+    names = org.get("names", [])
+    return names[0]["value"] if names else "Unknown organization"
+
+
+def _is_relevant(org: dict[str, Any]) -> bool:
+    name = _display_name(org).lower()
+    if any(b in name for b in KEYWORD_BLOCK):
+        return False
+    types = {t.lower() for t in org.get("types", [])}
+    if not types & RELEVANT_TYPES:
+        return False
+    return True
+
+
+def _score(org: dict[str, Any]) -> int:
+    name = _display_name(org).lower()
+    return sum(1 for k in KEYWORD_BOOST if k in name)
+
+
+def lookup_country_institutions(country_code: str, limit: int = 2) -> list[dict[str, Any]]:
+    """Query ROR live for `country_code`. Network errors -> empty (caller falls
+    back to the Continental tier rather than failing the whole sweep)."""
+    seen: dict[str, dict[str, Any]] = {}
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            for term in QUERY_TERMS:
+                resp = client.get(ROR_URL, params={"query": term, "filter": f"country.country_code:{country_code}"})
+                resp.raise_for_status()
+                for org in resp.json().get("items", []):
+                    if not _is_relevant(org):
+                        continue
+                    rid = org.get("id", org.get("name"))
+                    if rid not in seen:
+                        seen[rid] = org
+    except (httpx.HTTPError, ValueError):
+        return []
+
+    ranked = sorted(seen.values(), key=_score, reverse=True)[:limit]
+    out = []
+    for org in ranked:
+        links = org.get("links") or []
+        website = next((l["value"] for l in links if l.get("type") == "website"), None)
+        out.append(
+            {
+                "name": _display_name(org),
+                "type": next(iter(org.get("types", [])), "organization"),
+                "url": website,
+                "contact_url": website,
+            }
+        )
+    return out
