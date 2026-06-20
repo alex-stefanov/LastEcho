@@ -1,0 +1,8 @@
+{
+  "min_year": 2000,
+  "max_year": 2050,
+  "year_count": 51,
+  "row_count": 168549,
+  "format": "by_year",
+  "note": "Each key in years contains all language records for that year."
+}
