@@ -1,5 +1,17 @@
+# macOS
 .DS_Store
 .claude/.DS_Store
-.claude/.DS_Store
-.claude/.DS_Store
-.env.local.example
+
+# Secrets — never commit real env files (the *.example templates ARE tracked)
+.env
+*.env
+api/.env
+**/.env.local
+**/.env.*.local
+
+# Build artifacts / caches (regenerated; should not be in version control)
+client.zip
+client/.vite/
+client/dist/
+site/
+node_modules/
