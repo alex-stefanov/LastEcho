@@ -75,6 +75,47 @@ export interface TriageRunResult {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
+// --- admin auth -------------------------------------------------------------
+// The admin token is issued by the server (POST /api/admin/login) in exchange
+// for credentials and kept only in sessionStorage. Every admin/triage call
+// sends it as the X-Admin-Token header. No credential is ever embedded in the
+// bundle, and the token alone is useless without the server having issued it.
+
+const ADMIN_TOKEN_KEY = 'lastecho-admin-token';
+
+export function getAdminToken(): string | null {
+  return sessionStorage.getItem(ADMIN_TOKEN_KEY);
+}
+
+export function hasAdminToken(): boolean {
+  return Boolean(getAdminToken());
+}
+
+export function clearAdminToken(): void {
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+function adminHeaders(): HeadersInit {
+  const token = getAdminToken();
+  return token ? { 'X-Admin-Token': token } : {};
+}
+
+// Exchange credentials for the admin token. Throws on bad credentials (401) or
+// when admin auth isn't configured on the server (503).
+export async function loginAdmin(user: string, password: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user, password }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `API ${res.status}: login failed`);
+  }
+  const { token } = (await res.json()) as { token: string };
+  sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+}
+
 export async function fetchOutreachStatus(): Promise<Record<number, OutreachStatusSummary>> {
   const res = await fetch(`${API_BASE}/api/outreach-status`);
   if (!res.ok) throw new Error(`API ${res.status}: failed to load outreach status`);
@@ -93,25 +134,25 @@ export async function fetchInstitutions(languageId: number): Promise<Institution
 
 export async function fetchOutreachQueue(status?: DraftStatus): Promise<OutreachDraft[]> {
   const qs = status ? `?status=${status}` : '';
-  const res = await fetch(`${API_BASE}/api/outreach-queue${qs}`);
+  const res = await fetch(`${API_BASE}/api/outreach-queue${qs}`, { headers: adminHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: failed to load outreach queue`);
   return res.json();
 }
 
 export async function approveDraft(id: number): Promise<OutreachDraft> {
-  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/approve`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/approve`, { method: 'POST', headers: adminHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: failed to approve draft`);
   return res.json();
 }
 
 export async function rejectDraft(id: number): Promise<OutreachDraft> {
-  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/reject`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/reject`, { method: 'POST', headers: adminHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: failed to reject draft`);
   return res.json();
 }
 
 export async function markSent(id: number): Promise<OutreachDraft> {
-  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/mark-sent`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/mark-sent`, { method: 'POST', headers: adminHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: failed to mark draft sent`);
   return res.json();
 }
@@ -122,7 +163,7 @@ export async function markSent(id: number): Promise<OutreachDraft> {
 // returns 400 (no recipient), 503 (SMTP not configured), or 502 (delivery
 // failed) — surfaced here so the admin sees why a send didn't go out.
 export async function sendDraft(id: number): Promise<OutreachDraft> {
-  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/send`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/send`, { method: 'POST', headers: adminHeaders() });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
     throw new Error(detail?.detail ?? `API ${res.status}: failed to send draft`);
@@ -131,7 +172,7 @@ export async function sendDraft(id: number): Promise<OutreachDraft> {
 }
 
 export async function markReplied(id: number): Promise<OutreachDraft> {
-  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/mark-replied`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/mark-replied`, { method: 'POST', headers: adminHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: failed to mark draft replied`);
   return res.json();
 }
@@ -139,13 +180,13 @@ export async function markReplied(id: number): Promise<OutreachDraft> {
 // Marks the current rung "no reply" and queues the next rung of the ladder
 // (local -> continental -> global). Returns null if already at the last rung.
 export async function escalateDraft(id: number): Promise<OutreachDraft | null> {
-  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/escalate`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/escalate`, { method: 'POST', headers: adminHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: failed to escalate draft`);
   return res.json();
 }
 
 export async function runTriage(): Promise<TriageRunResult> {
-  const res = await fetch(`${API_BASE}/api/triage/run`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/triage/run`, { method: 'POST', headers: adminHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: failed to run triage sweep`);
   return res.json();
 }

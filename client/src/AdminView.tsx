@@ -1,8 +1,11 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   approveDraft,
+  clearAdminToken,
   escalateDraft,
   fetchOutreachQueue,
+  hasAdminToken,
+  loginAdmin,
   markReplied,
   markSent,
   rejectDraft,
@@ -38,10 +41,6 @@ function sortDrafts(drafts: OutreachDraft[], mode: AdminSort): OutreachDraft[] {
 }
 
 const THEME_KEY = 'lastecho-theme';
-const ADMIN_SESSION_KEY = 'lastecho-admin-session';
-const ADMIN_USER = import.meta.env.VITE_ADMIN_USER ?? '';
-const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD ?? '';
-const ADMIN_CONFIGURED = Boolean(ADMIN_USER && ADMIN_PASSWORD);
 
 type StatusTone = 'pending' | 'approved' | 'sent' | 'replied' | 'rejected' | 'no_reply';
 
@@ -61,104 +60,6 @@ const STATUS_LABEL: Record<DraftStatus, string> = {
   no_reply: 'No reply',
 };
 
-const MOCK_DRAFTS: OutreachDraft[] = [
-  {
-    id: 1001,
-    languageId: 14,
-    institutionId: 'local-batsbi-center',
-    tier: 'local',
-    subject: 'Documentation support for Batsbi speakers',
-    body: 'Hello,\n\nLastEcho flagged Batsbi as a high-priority language for near-term documentation support. We are looking for a local partner who can confirm current speaker estimates, existing recordings, and whether community-led documentation work is already active.\n\nCould your team advise who the right contact would be for this language community?',
-    ask: 'Confirm contact, speaker estimate, and active documentation status.',
-    status: 'pending_review',
-    createdAt: '2026-06-18T08:30:00.000Z',
-    decidedAt: null,
-    sentAt: null,
-    canEscalate: false,
-    languageName: 'Batsbi',
-    institutionName: 'Caucasus Language Archive',
-    institutionUrl: 'https://example.org/caucasus-archive',
-    institutionContactUrl: 'https://example.org/caucasus-archive/contact',
-    institutionEmail: 'contact@example.org',
-  },
-  {
-    id: 1002,
-    languageId: 22,
-    institutionId: 'continental-archive',
-    tier: 'continental',
-    subject: 'Partner request: Koro language preservation',
-    body: 'Hello,\n\nWe are preparing an outreach packet for Koro and would like to verify which organizations are already working with the community. The goal is not to duplicate effort, but to route urgent documentation support to the right people.\n\nCould you point us toward the best current contact or archive record?',
-    ask: 'Find the right active contact or archive record before escalation.',
-    status: 'approved',
-    createdAt: '2026-06-17T13:12:00.000Z',
-    decidedAt: '2026-06-18T09:42:00.000Z',
-    sentAt: null,
-    canEscalate: false,
-    languageName: 'Koro',
-    institutionName: 'Endangered Languages Documentation Programme',
-    institutionUrl: 'https://example.org/eldp',
-    institutionContactUrl: 'https://example.org/eldp/contact',
-    institutionEmail: null,
-  },
-  {
-    id: 1003,
-    languageId: 31,
-    institutionId: 'local-oral-history',
-    tier: 'local',
-    subject: 'Request for current materials on N|uu',
-    body: 'Hello,\n\nLastEcho is tracking N|uu as a language where existing documentation and community access should be checked carefully. We would like to verify whether there are active oral-history recordings, teaching materials, or community contacts that should be prioritized.\n\nCould you share the correct contact path?',
-    ask: 'Check whether existing materials are accessible to the community.',
-    status: 'sent',
-    createdAt: '2026-06-08T10:04:00.000Z',
-    decidedAt: '2026-06-08T15:24:00.000Z',
-    sentAt: '2026-06-09T11:20:00.000Z',
-    canEscalate: true,
-    languageName: 'N|uu',
-    institutionName: 'Southern African Oral History Network',
-    institutionUrl: 'https://example.org/oral-history',
-    institutionContactUrl: 'https://example.org/oral-history/contact',
-    institutionEmail: 'archive@example.org',
-  },
-  {
-    id: 1004,
-    languageId: 43,
-    institutionId: 'global-linguistics',
-    tier: 'global',
-    subject: 'Follow-up: urgent record check for Ainu',
-    body: 'Hello,\n\nWe are following up after a previous local and continental search. LastEcho needs help validating whether Ainu support should be routed to an active documentation project, a university archive, or a community-led organization.\n\nAny verified direction would help us avoid sending support to stale contacts.',
-    ask: 'Validate the best global route after local search stalled.',
-    status: 'replied',
-    createdAt: '2026-06-02T09:45:00.000Z',
-    decidedAt: '2026-06-02T10:10:00.000Z',
-    sentAt: '2026-06-03T08:00:00.000Z',
-    canEscalate: false,
-    languageName: 'Ainu',
-    institutionName: 'Global Language Archive Network',
-    institutionUrl: 'https://example.org/global-archive',
-    institutionContactUrl: 'https://example.org/global-archive/contact',
-    institutionEmail: 'desk@example.org',
-  },
-  {
-    id: 1005,
-    languageId: 56,
-    institutionId: 'regional-institute',
-    tier: 'local',
-    subject: 'Draft declined: Wukchumni local contact',
-    body: 'This draft was declined because the proposed organization had no clear language preservation role. A better local partner should be found before sending.',
-    ask: 'Replace the organization before creating a new draft.',
-    status: 'rejected',
-    createdAt: '2026-06-15T16:30:00.000Z',
-    decidedAt: '2026-06-16T08:10:00.000Z',
-    sentAt: null,
-    canEscalate: false,
-    languageName: 'Wukchumni',
-    institutionName: 'Regional Culture Office',
-    institutionUrl: 'https://example.org/regional-culture',
-    institutionContactUrl: 'https://example.org/regional-culture/contact',
-    institutionEmail: null,
-  },
-];
-
 function toneFor(status: DraftStatus): StatusTone {
   return status === 'pending_review' ? 'pending' : status;
 }
@@ -173,10 +74,6 @@ function formatDate(iso?: string | null): string {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(iso));
 }
 
-function isSavedAdminSession(): boolean {
-  return sessionStorage.getItem(ADMIN_SESSION_KEY) === `authenticated:${ADMIN_USER}`;
-}
-
 interface AdminLoginProps {
   theme: Theme;
   onToggleTheme: () => void;
@@ -186,6 +83,7 @@ interface AdminLoginProps {
 function AdminLogin({ theme, onToggleTheme, onLogin }: AdminLoginProps) {
   const [credentials, setCredentials] = useState({ user: '', password: '' });
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const onChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
@@ -193,18 +91,19 @@ function AdminLogin({ theme, onToggleTheme, onLogin }: AdminLoginProps) {
     setError(null);
   };
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!ADMIN_CONFIGURED) {
-      setError('Admin seed is missing. Add VITE_ADMIN_USER and VITE_ADMIN_PASSWORD in .env.local.');
-      return;
+    setError(null);
+    setBusy(true);
+    try {
+      // Credentials are verified by the server, which returns the admin token.
+      await loginAdmin(credentials.user.trim(), credentials.password);
+      onLogin();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Login failed');
+    } finally {
+      setBusy(false);
     }
-    if (credentials.user.trim() !== ADMIN_USER || credentials.password !== ADMIN_PASSWORD) {
-      setError('Wrong admin seed. Check your local .env.local values.');
-      return;
-    }
-    sessionStorage.setItem(ADMIN_SESSION_KEY, `authenticated:${ADMIN_USER}`);
-    onLogin();
   };
 
   return (
@@ -213,13 +112,13 @@ function AdminLogin({ theme, onToggleTheme, onLogin }: AdminLoginProps) {
         <div className="admin-login-copy">
           <span className="admin-login-eyebrow">Protected admin area</span>
           <h1>Signal Desk</h1>
-          <p>Use your local admin seed to review outreach drafts and contact decisions.</p>
+          <p>Sign in to review outreach drafts and contact decisions.</p>
         </div>
         <form className="admin-login-card" onSubmit={onSubmit}>
           <div className="admin-login-head">
             <div>
               <h2>Admin login</h2>
-              <p>Temporary frontend gate until backend auth is added.</p>
+              <p>Credentials are verified by the server.</p>
             </div>
             <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           </div>
@@ -229,10 +128,10 @@ function AdminLogin({ theme, onToggleTheme, onLogin }: AdminLoginProps) {
           </label>
           <label className="admin-login-field">
             <span>Password</span>
-            <input autoComplete="current-password" name="password" placeholder="Seed password" type="password" value={credentials.password} onChange={onChange} />
+            <input autoComplete="current-password" name="password" placeholder="Password" type="password" value={credentials.password} onChange={onChange} />
           </label>
           {error && <p className="admin-login-error">{error}</p>}
-          <button className="admin-login-submit" type="submit">Enter dashboard</button>
+          <button className="admin-login-submit" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Enter dashboard'}</button>
         </form>
       </section>
     </main>
@@ -242,14 +141,13 @@ function AdminLogin({ theme, onToggleTheme, onLogin }: AdminLoginProps) {
 export default function AdminView() {
   const [filter, setFilter] = useState<AdminViewFilter>('review');
   const [sortMode, setSortMode] = useState<AdminSort>('priority');
-  const [drafts, setDrafts] = useState<OutreachDraft[]>(MOCK_DRAFTS);
-  const [selectedId, setSelectedId] = useState<number>(MOCK_DRAFTS[0].id);
+  const [drafts, setDrafts] = useState<OutreachDraft[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
-  const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(() => localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark');
-  const [authenticated, setAuthenticated] = useState(() => ADMIN_CONFIGURED && isSavedAdminSession());
+  const [authenticated, setAuthenticated] = useState(() => hasAdminToken());
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -257,17 +155,26 @@ export default function AdminView() {
   }, [theme]);
 
   useEffect(() => {
+    if (!authenticated) return;
     let cancelled = false;
     fetchOutreachQueue()
       .then((rows) => {
         if (cancelled) return;
-        setLive(true);
         setDrafts(rows);
         if (rows[0]) setSelectedId(rows[0].id);
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (cancelled) return;
+        // A 401 means the token is stale/invalid — drop back to the login screen.
+        if (e instanceof Error && e.message.includes('401')) {
+          clearAdminToken();
+          setAuthenticated(false);
+        } else {
+          setError(e instanceof Error ? e.message : 'Failed to load queue');
+        }
+      });
     return () => { cancelled = true; };
-  }, []);
+  }, [authenticated]);
 
   const activeFilter = FILTERS.find((item) => item.key === filter) ?? FILTERS[0];
 
@@ -284,28 +191,14 @@ export default function AdminView() {
     sent: drafts.filter((draft) => draft.status === 'sent' || draft.status === 'no_reply').length,
   }), [drafts]);
 
-  const setStatusLocal = (id: number, status: DraftStatus) => {
-    setDrafts((items) => items.map((draft) => draft.id === id ? {
-      ...draft,
-      status,
-      decidedAt: status === 'approved' || status === 'rejected' ? new Date().toISOString() : draft.decidedAt,
-      sentAt: status === 'sent' ? new Date().toISOString() : draft.sentAt,
-      canEscalate: status === 'sent' ? draft.canEscalate : false,
-    } : draft));
-  };
-
-  const act = async (id: number, localStatus: DraftStatus, apiCall?: (id: number) => Promise<OutreachDraft | null>) => {
+  const act = async (id: number, apiCall: (id: number) => Promise<OutreachDraft | null>) => {
     setError(null);
-    if (!live || !apiCall) {
-      setStatusLocal(id, localStatus);
-      return;
-    }
     setBusy(true);
     try {
       await apiCall(id);
       const rows = await fetchOutreachQueue();
       setDrafts(rows);
-      if (!rows.some((r) => r.id === selectedId)) setSelectedId(rows[0]?.id ?? selectedId);
+      if (!rows.some((r) => r.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Action failed');
     } finally {
@@ -322,7 +215,7 @@ export default function AdminView() {
   };
 
   const logout = () => {
-    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    clearAdminToken();
     setAuthenticated(false);
   };
 
@@ -339,7 +232,7 @@ export default function AdminView() {
             <p className="admin-tagline">Admin console for outreach review and partner contact decisions.</p>
           </div>
           <div className="admin-header-actions">
-            <span className="admin-session-label">{ADMIN_USER}</span>
+            <span className="admin-session-label">Admin</span>
             <ThemeToggle theme={theme} onToggle={() => setTheme((c) => c === 'dark' ? 'light' : 'dark')} />
             <button className="admin-logout" type="button" onClick={logout}>Log out</button>
           </div>
@@ -425,29 +318,26 @@ export default function AdminView() {
                 <div className="admin-actions-row">
                   {selected.status === 'pending_review' && (
                     <>
-                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'approved', approveDraft)}>Approve</button>
-                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, 'rejected', rejectDraft)}>Reject</button>
+                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, approveDraft)}>Approve</button>
+                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, rejectDraft)}>Reject</button>
                     </>
                   )}
                   {selected.status === 'approved' && (
                     <>
                       {selected.institutionEmail
-                        ? <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>
+                        ? <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>
                         : <a className="admin-action primary" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">Contact page</a>
                       }
                       {selected.institutionEmail && <a className="admin-action" href={mailtoFor(selected)}>Open email</a>}
                       <button className="admin-action" type="button" onClick={copyDraft}>{copied ? 'Copied' : 'Copy'}</button>
-                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', markSent)}>Mark sent</button>
+                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, markSent)}>Mark sent</button>
                     </>
                   )}
                   {selected.status === 'sent' && (
                     <>
-                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'replied', markReplied)}>Mark replied</button>
-                      <button className="admin-action" type="button" disabled={busy || !selected.canEscalate} onClick={() => act(selected.id, 'no_reply', escalateDraft)}>Escalate</button>
+                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, markReplied)}>Mark replied</button>
+                      <button className="admin-action" type="button" disabled={busy || !selected.canEscalate} onClick={() => act(selected.id, escalateDraft)}>Escalate</button>
                     </>
-                  )}
-                  {(selected.status === 'replied' || selected.status === 'rejected' || selected.status === 'no_reply') && (
-                    <button className="admin-action" type="button" onClick={() => setStatusLocal(selected.id, 'pending_review')}>Return to review</button>
                   )}
                 </div>
                 {error && <p className="admin-error" role="alert">{error}</p>}
