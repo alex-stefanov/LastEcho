@@ -7,6 +7,7 @@ development. Override via environment variables for deployment.
 from __future__ import annotations
 
 import os
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,11 +23,24 @@ _DEFAULT_DB_PATH = _API_ROOT / "data" / "lastecho.db"
 
 
 def _load_dotenv(path: Path) -> None:
-    """Minimal KEY=VALUE loader for api/.env (no dependency). Real environment
-    variables take precedence, so a deployed config is never overridden by a
-    stray local .env. Surrounding quotes are stripped; blanks/comments ignored."""
+    """Load api/.env into os.environ. Real environment variables take precedence,
+    so a deployed config is never overridden by a stray local .env.
+
+    Uses python-dotenv when available (handles quoting, inline comments, escapes,
+    and multiline values correctly); falls back to a minimal KEY=VALUE parser so
+    the app still boots with zero extra dependencies installed."""
     if not path.exists():
         return
+    try:
+        from dotenv import dotenv_values
+
+        for key, value in dotenv_values(path).items():
+            if value is not None:
+                os.environ.setdefault(key, value)
+        return
+    except ImportError:
+        pass
+    # Fallback: minimal parser (does not handle inline comments or escapes).
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -59,10 +73,14 @@ class Settings:
     data_path: Path = field(
         default_factory=lambda: Path(os.environ.get("LASTECHO_DATA_PATH", _DEFAULT_DATA_PATH))
     )
-    # CORS origins. Defaults to "*" for the hackathon; set LASTECHO_CORS_ORIGINS
-    # to the frontend origin(s) (comma-separated) before deploying.
+    # CORS origins (comma-separated). Defaults to the local dev origins only —
+    # never "*", which (combined with the admin token) would let any site drive
+    # the API from a victim's browser. Set LASTECHO_CORS_ORIGINS to the deployed
+    # frontend origin(s) in production.
     cors_origins: list[str] = field(
-        default_factory=lambda: _csv_env("LASTECHO_CORS_ORIGINS", "*")
+        default_factory=lambda: _csv_env(
+            "LASTECHO_CORS_ORIGINS", "http://localhost:5173,http://localhost:4173"
+        )
     )
 
     # --- outreach (the "response layer") ---
@@ -126,6 +144,40 @@ class Settings:
     smtp_use_tls: bool = field(
         default_factory=lambda: _bool_env("LASTECHO_SMTP_USE_TLS", True)
     )
+
+    # --- admin auth (server-side) ---------------------------------------------
+    # The admin/triage endpoints are gated by a bearer token. Set a password to
+    # enable admin: POST /api/admin/login exchanges user+password for the token,
+    # which the client then sends as the X-Admin-Token header. With no password
+    # set, login and every admin endpoint fail closed (503) — there is no
+    # client-side-only gate. The token defaults to a fresh random value per
+    # process; set LASTECHO_ADMIN_TOKEN to keep sessions stable across restarts.
+    admin_user: str = field(
+        default_factory=lambda: os.environ.get("LASTECHO_ADMIN_USER", "admin")
+    )
+    admin_password: str | None = field(
+        default_factory=lambda: os.environ.get("LASTECHO_ADMIN_PASSWORD") or None
+    )
+    admin_token: str = field(
+        default_factory=lambda: os.environ.get("LASTECHO_ADMIN_TOKEN")
+        or secrets.token_urlsafe(32)
+    )
+
+    # --- operational limits ---------------------------------------------------
+    # Per-IP request cap (sliding 60s window) applied to the API routers.
+    rate_limit_per_min: int = field(
+        default_factory=lambda: int(os.environ.get("LASTECHO_RATE_LIMIT_PER_MIN", "120"))
+    )
+    # The startup triage sweep does live ROR lookups + (optionally) paid Anthropic
+    # calls. Off by default so boot is fast and cheap; run it on demand via
+    # POST /api/triage/run, or set this true to sweep once at startup (backgrounded).
+    run_sweep_on_startup: bool = field(
+        default_factory=lambda: _bool_env("LASTECHO_RUN_SWEEP_ON_STARTUP", False)
+    )
+
+    @property
+    def admin_configured(self) -> bool:
+        return bool(self.admin_password)
 
 
 settings = Settings()

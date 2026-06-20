@@ -1,5 +1,6 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
+python-dotenv>=1.0     # robust .env parsing (config.py falls back to a minimal parser if absent)
 
 # outreach (the "response layer")
 anthropic>=0.40        # outreach.py drafting (falls back to a template if unset)
