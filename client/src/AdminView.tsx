@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
 import type { DraftStatus, OutreachDraft } from './data/api';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
 
 type AdminViewFilter = 'review' | 'ready' | 'active' | 'closed';
 
 const THEME_KEY = 'lastecho-theme';
+const ADMIN_SESSION_KEY = 'lastecho-admin-session';
+const ADMIN_USER = import.meta.env.VITE_ADMIN_USER ?? '';
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD ?? '';
+const ADMIN_CONFIGURED = Boolean(ADMIN_USER && ADMIN_PASSWORD);
 
 type StatusTone = 'pending' | 'approved' | 'sent' | 'replied' | 'rejected' | 'no_reply';
 
@@ -141,6 +145,95 @@ function formatDate(iso?: string | null): string {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(iso));
 }
 
+function isSavedAdminSession(): boolean {
+  return sessionStorage.getItem(ADMIN_SESSION_KEY) === `authenticated:${ADMIN_USER}`;
+}
+
+interface AdminLoginProps {
+  theme: Theme;
+  onToggleTheme: () => void;
+  onLogin: () => void;
+}
+
+function AdminLogin({ theme, onToggleTheme, onLogin }: AdminLoginProps) {
+  const [credentials, setCredentials] = useState({ user: '', password: '' });
+  const [error, setError] = useState<string | null>(null);
+
+  const onChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setCredentials((current) => ({ ...current, [name]: value }));
+    setError(null);
+  };
+
+  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!ADMIN_CONFIGURED) {
+      setError('Admin seed is missing. Add VITE_ADMIN_USER and VITE_ADMIN_PASSWORD in .env.local.');
+      return;
+    }
+
+    if (credentials.user.trim() !== ADMIN_USER || credentials.password !== ADMIN_PASSWORD) {
+      setError('Wrong admin seed. Check your local .env.local values.');
+      return;
+    }
+
+    sessionStorage.setItem(ADMIN_SESSION_KEY, `authenticated:${ADMIN_USER}`);
+    onLogin();
+  };
+
+  return (
+    <main className="admin admin-login-page">
+      <section className="admin-login-shell" aria-label="Admin login">
+        <div className="admin-login-copy">
+          <span className="admin-login-eyebrow">Protected admin area</span>
+          <h1>Signal Desk</h1>
+          <p>Use your local admin seed to review outreach drafts and contact decisions.</p>
+        </div>
+
+        <form className="admin-login-card" onSubmit={onSubmit}>
+          <div className="admin-login-head">
+            <div>
+              <h2>Admin login</h2>
+              <p>Temporary frontend gate until backend auth is added.</p>
+            </div>
+            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+          </div>
+
+          <label className="admin-login-field">
+            <span>Username</span>
+            <input
+              autoComplete="username"
+              name="user"
+              placeholder="admin"
+              value={credentials.user}
+              onChange={onChange}
+            />
+          </label>
+
+          <label className="admin-login-field">
+            <span>Password</span>
+            <input
+              autoComplete="current-password"
+              name="password"
+              placeholder="Seed password"
+              type="password"
+              value={credentials.password}
+              onChange={onChange}
+            />
+          </label>
+
+          {error && <p className="admin-login-error">{error}</p>}
+
+          <button className="admin-login-submit" type="submit">
+            Enter dashboard
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
 export default function AdminView() {
   const [filter, setFilter] = useState<AdminViewFilter>('review');
   const [drafts, setDrafts] = useState<OutreachDraft[]>(MOCK_DRAFTS);
@@ -149,6 +242,7 @@ export default function AdminView() {
   const [theme, setTheme] = useState<Theme>(() =>
     localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark',
   );
+  const [authenticated, setAuthenticated] = useState(() => ADMIN_CONFIGURED && isSavedAdminSession());
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -197,6 +291,21 @@ export default function AdminView() {
     });
   };
 
+  const logout = () => {
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    setAuthenticated(false);
+  };
+
+  if (!authenticated) {
+    return (
+      <AdminLogin
+        theme={theme}
+        onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+        onLogin={() => setAuthenticated(true)}
+      />
+    );
+  }
+
   return (
     <main className="admin">
       <section className="admin-shell">
@@ -205,7 +314,13 @@ export default function AdminView() {
             <h1>Signal Desk</h1>
             <p className="admin-tagline">Admin console for outreach review and partner contact decisions.</p>
           </div>
-          <ThemeToggle theme={theme} onToggle={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))} />
+          <div className="admin-header-actions">
+            <span className="admin-session-label">{ADMIN_USER}</span>
+            <ThemeToggle theme={theme} onToggle={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))} />
+            <button className="admin-logout" type="button" onClick={logout}>
+              Log out
+            </button>
+          </div>
         </header>
 
         <section className="admin-metrics" aria-label="Admin overview">
