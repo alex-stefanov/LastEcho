@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TL_TODAY, TL_MAX_YEAR } from '../data/timeline';
+import { TL_TODAY, TL_MIN_YEAR, TL_MAX_YEAR } from '../data/timeline';
 
 interface Props {
   year: number;
@@ -13,28 +13,19 @@ interface Props {
 
 const TODAY = TL_TODAY; // 2024 — last observed year
 
-// Recorded snapshots — the only selectable years in the past.
-const RECORDED = [
-  { year: 2000, label: 'Past' },
-  { year: 2012, label: 'Recent' },
-  { year: TODAY, label: 'Today' }, // 2024
-] as const;
-const RECORDED_YEARS: number[] = RECORDED.map((m) => m.year);
+// Full scrubbable range — every year in [DMIN, DMAX] is freely selectable.
+const DMIN = TL_MIN_YEAR; // 2000
+const DMAX = TL_MAX_YEAR; // 2050
+// ML forecast begins after today: every year up to it is observed (green),
+// after it the projection takes over (orange).
+const SPLIT = TODAY;
+const DECADES = [2000, 2010, 2020, 2030, 2040, 2050];
 
-// Forecast horizon — the right-hand lane the ML scenario fills in.
-const HORIZON = TL_MAX_YEAR; // 2050
-const DMIN = RECORDED_YEARS[0];
-// ML forecast begins after this year: on/before it the run is green, after it orange.
-const SPLIT = 2025;
-
-// Piecewise scale: the recorded past gets a fixed slice of the track so its
-// three stops stay legible; the forecast lane takes the rest.
-const RECORDED_FRAC = 42; // % of the track devoted to 2018→Today
-const TODAY_PCT = RECORDED_FRAC;
-const pct = (y: number) =>
-  y <= TODAY
-    ? ((y - DMIN) / (TODAY - DMIN)) * RECORDED_FRAC
-    : RECORDED_FRAC + ((y - TODAY) / (HORIZON - TODAY)) * (100 - RECORDED_FRAC);
+// Linear scale across the whole range so each year gets an equal slice of the
+// track and none are skipped.
+const clampYear = (y: number) => Math.min(DMAX, Math.max(DMIN, Math.round(y)));
+const nextYear = (y: number) => Math.min(DMAX, y + 1);
+const pct = (y: number) => ((y - DMIN) / (DMAX - DMIN)) * 100;
 const SPLIT_PCT = pct(SPLIT);
 const TODAY_PCT = pct(TODAY);
 
@@ -44,16 +35,12 @@ export default function Timeline({ year, setYear, playing, setPlaying, ready }: 
 
   const isFuture = year > SPLIT;
 
-  useEffect(() => {
-    if (year > TODAY && !simRan) setSimRan(true);
-  }, [year, simRan]);
-
-  // The run loop. Reschedules itself after every step, pausing briefly on the
-  // recorded stops and then stepping year-by-year through the ML forecast.
-  // Crucially it keys off the *current* year, so Run always continues from
-  // wherever the thumb already is — never from the beginning. It also waits on
-  // `ready`: a step is only scheduled once the current year's snapshot has
-  // loaded, so the globe is never asked to show a year it doesn't yet have.
+  // The run loop. Reschedules itself after every step, advancing one year at a
+  // time across the full range. Crucially it keys off the *current* year, so
+  // Run always continues from wherever the thumb already is — never from the
+  // beginning. It also waits on `ready`: a step is only scheduled once the
+  // current year's snapshot has loaded, so the globe is never asked to show a
+  // year it doesn't yet have.
   useEffect(() => {
     if (!playing) return;
     if (year >= DMAX) {
