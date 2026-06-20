@@ -3,14 +3,11 @@ import GlobeView from './components/GlobeView';
 import FilterPanel from './components/FilterPanel';
 import Timeline from './components/Timeline';
 import Wordmark from './components/Wordmark';
-import SelectedCard from './components/SelectedCard';
 import YearLangCard from './components/YearLangCard';
 import RotateControl from './components/RotateControl';
 import Nav, { type View } from './components/Nav';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
 import TreeGraph from './components/TreeGraph';
-import { type LangRecord } from './data/mockLanguages';
-import languagesData from './data/languages.json';
 import {
   countByGroup,
   GROUP_LABEL,
@@ -27,8 +24,6 @@ type Filters = Record<VitalityGroup, boolean>;
 const THEME_KEY = 'lastecho-theme';
 const EMPTY_COUNTS: Record<VitalityGroup, number> = { healthy: 0, watch: 0, serious: 0, gone: 0, unknown: 0 };
 const ALL_GROUPS_ON: Filters = { healthy: true, watch: true, serious: true, gone: true, unknown: true };
-// The tree view still runs on the precomputed, bundled dataset.
-const languages = languagesData.languages as LangRecord[];
 
 export default function App() {
   const [view, setView] = useState<View>('globe');
@@ -37,7 +32,6 @@ export default function App() {
   const [autoRotate, setAutoRotate] = useState(true);
   const [filters, setFilters] = useState<Filters>(ALL_GROUPS_ON);
   const [selectedIso, setSelectedIso] = useState<string | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem(THEME_KEY) as Theme) || 'dark',
@@ -96,8 +90,6 @@ export default function App() {
     [selectedIso, yearData],
   );
 
-  const selectedLang = selected === null ? null : languages.find((l) => l.id === selected) ?? null;
-
   const underOutreach = useMemo(
     () => Object.values(outreachStatus).filter((o) => o.hasPending || o.hasApproved).length,
     [outreachStatus],
@@ -145,33 +137,27 @@ export default function App() {
           />
 
           <RotateControl on={autoRotate} onToggle={() => setAutoRotate((v) => !v)} />
-
-          {selectedYearLang && (
-            <YearLangCard
-              lang={selectedYearLang}
-              year={year}
-              onClose={() => setSelectedIso(null)}
-            />
-          )}
         </>
       )}
 
-      {view === 'tree' && <TreeGraph year={year} selected={selected} onSelect={(id) => setSelected(id)} />}
+      {view === 'tree' && (
+        <TreeGraph
+          year={year}
+          yearData={yearData}
+          selectedIso={selectedIso}
+          onSelect={(iso) => setSelectedIso(iso)}
+        />
+      )}
+
+      {selectedYearLang && (
+        <YearLangCard lang={selectedYearLang} year={year} onClose={() => setSelectedIso(null)} />
+      )}
 
       <Wordmark />
       <Nav view={view} onChange={setView} />
       <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
 
       <Timeline year={year} setYear={setYear} playing={playing} setPlaying={setPlaying} ready={ready} />
-
-      {view === 'tree' && selectedLang && (
-        <SelectedCard
-          lang={selectedLang}
-          year={year}
-          outreach={outreachStatus[selectedLang.id]}
-          onClose={() => setSelected(null)}
-        />
-      )}
     </div>
   );
 }

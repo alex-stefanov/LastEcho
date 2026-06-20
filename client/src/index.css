@@ -1186,34 +1186,21 @@ body {
   transition: opacity 0.55s ease;
 }
 
-/* invisible thick hit-line over each family bough */
-.lt-fams path {
-  fill: none;
-  stroke: transparent;
-  stroke-width: 18px;
-  stroke-linecap: round;
-  pointer-events: stroke;
+/* invisible circular hit-area over each family clump */
+.lt-ghit {
+  fill: transparent;
   cursor: pointer;
-  transition: stroke 0.2s ease;
+  pointer-events: all;
+  transition: fill 0.2s ease;
 }
-.lt-fams path.hv {
-  stroke: rgba(234, 162, 60, 0.14);
+.lt-ghit.hv {
+  fill: rgba(234, 162, 60, 0.10);
 }
-.lt-fams path.on {
-  stroke: rgba(234, 162, 60, 0.22);
+.lt-ghit.on {
+  fill: rgba(234, 162, 60, 0.16);
 }
 
-.lt-flabel {
-  font-family: var(--serif);
-  font-size: 15px;
-  font-weight: 600;
-  fill: var(--text);
-  paint-order: stroke;
-  stroke: var(--label-halo);
-  stroke-width: 3px;
-  pointer-events: none;
-}
-.lt-clabel {
+.lt-glabel {
   font-family: var(--serif);
   font-weight: 600;
   font-size: 12.5px;
@@ -1223,7 +1210,12 @@ body {
   paint-order: stroke;
   stroke: var(--label-halo);
   stroke-width: 3px;
-  pointer-events: none;
+  cursor: pointer;
+  transition: fill 0.2s ease;
+}
+.lt-glabel.hv,
+.lt-glabel.on {
+  fill: var(--text);
 }
 
 /* --- leaves --- */
@@ -1235,13 +1227,19 @@ body {
   animation-delay: var(--gd, 0s), calc(var(--gd, 0s) + 0.55s);
   transition: fill 0.55s ease, transform 0.15s ease, opacity 0.3s ease;
 }
-.leaf.alive {
-  fill: #3ee0a1;
+.leaf.grp-healthy {
+  fill: #35d49a;
 }
-.leaf.atrisk {
-  fill: #f0a83e;
+.leaf.grp-watch {
+  fill: #e8c34a;
 }
-.leaf.lost {
+.leaf.grp-serious {
+  fill: #ef5b3f;
+}
+.leaf.grp-unknown {
+  fill: #8d7fce;
+}
+.leaf.grp-gone {
   fill: #15130f;
   animation: leafFall 2.1s cubic-bezier(0.4, 0.06, 0.5, 0.95) forwards;
   animation-delay: var(--fd, 0s);

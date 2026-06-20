@@ -37,7 +37,6 @@ export interface YearLang {
   speakers: number | null;
   risk: YearRisk;
   vitality_group: VitalityGroup;
-  series_type: string;
   family_root: string;
   latitude_map: number | null;
   longitude_map: number | null;
