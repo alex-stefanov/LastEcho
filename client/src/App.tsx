@@ -6,10 +6,13 @@ import Wordmark from './components/Wordmark';
 import SelectedCard from './components/SelectedCard';
 import RotateControl from './components/RotateControl';
 import Nav, { type View } from './components/Nav';
+import ThemeToggle, { type Theme } from './components/ThemeToggle';
 import TreeGraph from './components/TreeGraph';
 import { LANGUAGES, statusAt, TODAY, type Vitality } from './data/mockLanguages';
 
 type Filters = Record<Vitality, boolean>;
+
+const THEME_KEY = 'lastecho-theme';
 
 export default function App() {
   const [view, setView] = useState<View>('globe');
@@ -19,12 +22,20 @@ export default function App() {
   const [filters, setFilters] = useState<Filters>({ alive: true, atRisk: true, lost: true });
   const [selected, setSelected] = useState<number | null>(null);
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem(THEME_KEY) as Theme) || 'dark',
+  );
 
   useEffect(() => {
     const onResize = () => setSize({ w: window.innerWidth, h: window.innerHeight });
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
 
   // Counts for this year — drives the summary row and the filter legend.
   const counts = useMemo(() => {
@@ -44,6 +55,7 @@ export default function App() {
               year={year}
               filters={filters}
               autoRotate={autoRotate}
+              theme={theme}
               onUserInteract={() => setAutoRotate(false)}
               onSelect={(id) => setSelected(id)}
             />
@@ -78,6 +90,7 @@ export default function App() {
 
       <Wordmark />
       <Nav view={view} onChange={setView} />
+      <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
 
       <Timeline year={year} setYear={setYear} playing={playing} setPlaying={setPlaying} />
 

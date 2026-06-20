@@ -8,9 +8,27 @@ interface Props {
   year: number;
   filters: Record<Vitality, boolean>;
   autoRotate: boolean;
+  theme: 'dark' | 'light';
   onUserInteract: () => void;
   onSelect: (id: number) => void;
 }
+
+const GLOBE_THEME = {
+  dark: {
+    globeImageUrl: 'https://unpkg.com/three-globe/example/img/earth-dark.jpg',
+    atmosphereColor: '#3b6f9e',
+    capColor: 'rgba(104, 124, 156, 0.55)',
+    sideColor: 'rgba(104, 124, 156, 0.06)',
+    strokeColor: 'rgba(168, 190, 220, 0.4)',
+  },
+  light: {
+    globeImageUrl: 'https://unpkg.com/three-globe/example/img/earth-day.jpg',
+    atmosphereColor: '#9ec3e8',
+    capColor: 'rgba(70, 96, 140, 0.28)',
+    sideColor: 'rgba(70, 96, 140, 0.05)',
+    strokeColor: 'rgba(54, 78, 120, 0.45)',
+  },
+} as const;
 
 const COUNTRIES_URL =
   'https://cdn.jsdelivr.net/gh/vasturiano/globe.gl/example/datasets/ne_110m_admin_0_countries.geojson';
@@ -41,9 +59,11 @@ export default function GlobeView({
   year,
   filters,
   autoRotate,
+  theme,
   onUserInteract,
   onSelect,
 }: Props) {
+  const gt = GLOBE_THEME[theme];
   const globeEl = useRef<any>(null);
   const els = useRef<Map<number, HTMLDivElement>>(new Map());
   const [land, setLand] = useState<any[]>([]);
@@ -140,15 +160,15 @@ export default function GlobeView({
       width={width}
       height={height}
       backgroundColor="rgba(0,0,0,0)"
-      globeImageUrl="https://unpkg.com/three-globe/example/img/earth-dark.jpg"
+      globeImageUrl={gt.globeImageUrl}
       bumpImageUrl="https://unpkg.com/three-globe/example/img/earth-topology.png"
       showAtmosphere
-      atmosphereColor="#3b6f9e"
+      atmosphereColor={gt.atmosphereColor}
       atmosphereAltitude={0.16}
       polygonsData={land}
-      polygonCapColor={() => 'rgba(104, 124, 156, 0.55)'}
-      polygonSideColor={() => 'rgba(104, 124, 156, 0.06)'}
-      polygonStrokeColor={() => 'rgba(168, 190, 220, 0.4)'}
+      polygonCapColor={() => gt.capColor}
+      polygonSideColor={() => gt.sideColor}
+      polygonStrokeColor={() => gt.strokeColor}
       polygonAltitude={0.006}
       polygonsTransitionDuration={400}
       htmlElementsData={MARKERS}
