@@ -36,27 +36,11 @@ const pct = (y: number) =>
     ? ((y - DMIN) / (TODAY - DMIN)) * RECORDED_FRAC
     : RECORDED_FRAC + ((y - TODAY) / (HORIZON - TODAY)) * (100 - RECORDED_FRAC);
 const SPLIT_PCT = pct(SPLIT);
-const yearFromPct = (p: number) =>
-  p <= RECORDED_FRAC
-    ? DMIN + (p / RECORDED_FRAC) * (TODAY - DMIN)
-    : TODAY + ((p - RECORDED_FRAC) / (100 - RECORDED_FRAC)) * (HORIZON - TODAY);
-
-// Where the run goes next from a given year: through the recorded stops in the
-// past, then one ML-predicted year at a time once we're at/after Today.
-function nextYear(y: number): number {
-  if (y < TODAY) {
-    const above = RECORDED_YEARS.find((r) => r > y);
-    return above ?? TODAY;
-  }
-  return Math.min(HORIZON, y + 1);
-}
+const TODAY_PCT = pct(TODAY);
 
 export default function Timeline({ year, setYear, playing, setPlaying, ready }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
-  // Once the run crosses into the future, the forecast lane is "live" and the
-  // ML projection can be scrubbed.
-  const [simRan, setSimRan] = useState(false);
 
   const isFuture = year > SPLIT;
 
@@ -72,7 +56,7 @@ export default function Timeline({ year, setYear, playing, setPlaying, ready }: 
   // loaded, so the globe is never asked to show a year it doesn't yet have.
   useEffect(() => {
     if (!playing) return;
-    if (year >= HORIZON) {
+    if (year >= DMAX) {
       setPlaying(false);
       return;
     }
@@ -84,25 +68,13 @@ export default function Timeline({ year, setYear, playing, setPlaying, ready }: 
     return () => clearTimeout(id);
   }, [playing, year, ready, setYear, setPlaying]);
 
-  // Resolve a raw year to a *selectable* one: snap to a stop in the past, free
-  // scrubbing through the forecast — but only once it has been simulated.
-  const resolve = useCallback((target: number) => {
-    if (target <= TODAY) {
-      let best = RECORDED_YEARS[0];
-      for (const y of RECORDED_YEARS) if (Math.abs(y - target) < Math.abs(best - target)) best = y;
-      return best;
-    }
-    if (!simRan) return TODAY;
-    return Math.min(HORIZON, Math.max(TODAY, Math.round(target)));
-  }, [simRan]);
-
   const yearFromClientX = useCallback((clientX: number) => {
     const el = trackRef.current;
     if (!el) return year;
     const rect = el.getBoundingClientRect();
     const ratio = (clientX - rect.left) / rect.width;
-    return resolve(yearFromPct(ratio * 100));
-  }, [resolve, year]);
+    return clampYear(DMIN + ratio * (DMAX - DMIN));
+  }, [year]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -121,42 +93,38 @@ export default function Timeline({ year, setYear, playing, setPlaying, ready }: 
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    setPlaying(false);
     let next: number | null = null;
-    const i = RECORDED_YEARS.indexOf(year);
-    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-      if (year < TODAY && i >= 0 && i < RECORDED_YEARS.length - 1) next = RECORDED_YEARS[i + 1];
-      else next = simRan ? Math.min(HORIZON, Math.max(TODAY, year) + 1) : TODAY;
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-      if (year > TODAY) next = year - 1;
-      else if (i > 0) next = RECORDED_YEARS[i - 1];
-    } else if (e.key === 'Home') next = DMIN;
-    else if (e.key === 'End') next = simRan ? HORIZON : TODAY;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = clampYear(year + 1);
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = clampYear(year - 1);
+    else if (e.key === 'PageUp') next = clampYear(year + 10);
+    else if (e.key === 'PageDown') next = clampYear(year - 10);
+    else if (e.key === 'Home') next = DMIN;
+    else if (e.key === 'End') next = DMAX;
     if (next === null) return;
     e.preventDefault();
+    setPlaying(false);
     setYear(next);
   };
 
   const onRun = () => {
     if (playing) {
-      setPlaying(false); // pause where we are
+      setPlaying(false);
     } else {
-      if (year >= HORIZON) setYear(TODAY); // nothing ahead — restart the forecast
-      setPlaying(true); // otherwise continue from the current year
+      if (year >= DMAX) setYear(DMIN);
+      setPlaying(true);
     }
   };
 
   const fillPct = pct(year);
-  const coolW = Math.min(fillPct, SPLIT_PCT);
-  const recorded = RECORDED.find((m) => m.year === year);
-  const phase = isFuture ? (playing ? 'Predicting' : 'Projected') : recorded?.label ?? '';
-  const runLabel = playing
-    ? 'Pause'
-    : year >= HORIZON
-      ? 'Replay'
+  const greenW = Math.min(fillPct, SPLIT_PCT);
+  const phase = playing && isFuture
+    ? 'Predicting'
+    : year === TODAY
+      ? 'Today'
       : isFuture
-        ? 'Resume'
-        : 'Run';
+        ? 'Projected'
+        : 'Recorded';
+  const runLabel = playing ? 'Pause' : year >= DMAX ? 'Replay' : 'Run';
 
   return (
     <div className={`timeline${dragging ? ' is-dragging' : ''}${playing && isFuture ? ' is-simulating' : ''}`}>
@@ -173,7 +141,7 @@ export default function Timeline({ year, setYear, playing, setPlaying, ready }: 
           tabIndex={0}
           aria-label="Year"
           aria-valuemin={DMIN}
-          aria-valuemax={simRan ? HORIZON : TODAY}
+          aria-valuemax={DMAX}
           aria-valuenow={year}
           aria-valuetext={`${year} — ${phase}`}
           onPointerDown={onPointerDown}
@@ -183,12 +151,16 @@ export default function Timeline({ year, setYear, playing, setPlaying, ready }: 
         >
           <div className="track-rail" />
 
-          {/* reserved forecast lane — filled by the ML simulation */}
-          <div className={`forecast${simRan ? ' live' : ' locked'}`} style={{ left: `${SPLIT_PCT}%` }}>
-            <span className="forecast-label">ML Forecast</span>
-          </div>
+          {/* decade gridlines — quiet ruler marks for scale */}
+          {DECADES.map((d) => (
+            <span key={d} className="grid-tick" style={{ left: `${pct(d)}%` }} />
+          ))}
 
-          <div className="track-fill" style={{ width: `${coolW}%` }} />
+          {/* tinted forecast lane, right of the ML split */}
+          <div className="forecast-lane" style={{ left: `${SPLIT_PCT}%` }} />
+
+          {/* observed fill (green) then forecast fill (orange) */}
+          <div className="track-fill" style={{ width: `${greenW}%` }} />
           {isFuture && (
             <div
               className="track-fill future"
@@ -196,20 +168,31 @@ export default function Timeline({ year, setYear, playing, setPlaying, ready }: 
             />
           )}
 
-          {/* 2025 — where the ML forecast takes over from the recorded record */}
-          <div className="forecast-start" style={{ left: `${SPLIT_PCT}%` }}>
-            <span className="fs-tick" />
-            <span className="fs-year">{SPLIT}</span>
+          {/* today marker — also where the ML projection takes over */}
+          <div className="today-mark" style={{ left: `${TODAY_PCT}%` }}>
+            <span className="tm-label">Today</span>
+            <span className="tm-tick" />
           </div>
 
-          <div className={`thumb${isFuture ? ' future' : ''}${dragging ? ' grabbing' : ''}`} style={{ left: `${fillPct}%` }}>
+          <div
+            className={`thumb${isFuture ? ' future' : ''}${dragging ? ' grabbing' : ''}`}
+            style={{ left: `${fillPct}%` }}
+          >
             <span className="thumb-core" />
           </div>
+        </div>
+
+        <div className="scale">
+          {DECADES.map((d) => (
+            <span key={d} className="scale-year" style={{ left: `${pct(d)}%` }}>
+              {d}
+            </span>
+          ))}
         </div>
       </div>
 
       <button
-        className={`sim-btn${simRan ? ' ran' : ''}${playing ? ' running' : ''}`}
+        className={`sim-btn${playing ? ' running' : ''}`}
         onClick={onRun}
         aria-label={runLabel}
       >

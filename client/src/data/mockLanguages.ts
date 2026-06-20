@@ -12,9 +12,9 @@
 
 export type Vitality = 'alive' | 'atRisk' | 'lost';
 
-export const MIN_YEAR = 1990;
-export const MAX_YEAR = 2045;
-export const TODAY = 2024;
+export const MIN_YEAR = 2000;
+export const MAX_YEAR = 2050;
+export const TODAY = 2026;
 
 export interface LangRecord {
   id: number;
