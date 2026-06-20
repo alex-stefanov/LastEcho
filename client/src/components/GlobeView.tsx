@@ -1,23 +1,45 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Globe from 'react-globe.gl';
 import { LANGUAGES, statusAt, colorFor, type Vitality } from '../data/mockLanguages';
+import { TOWNS, townStatusAt } from '../data/mockTowns';
+
+export type LayerKind = 'lang' | 'town';
+export type Layers = Record<LayerKind, boolean>;
 
 interface Props {
   width: number;
   height: number;
   year: number;
   filters: Record<Vitality, boolean>;
+  layers: Layers;
   autoRotate: boolean;
   onUserInteract: () => void;
-  onSelect: (id: number) => void;
+  onSelect: (kind: LayerKind, id: number) => void;
 }
 
 const COUNTRIES_URL =
   'https://cdn.jsdelivr.net/gh/vasturiano/globe.gl/example/datasets/ne_110m_admin_0_countries.geojson';
 
-// Stable marker payloads + lookup — built once so the globe never rebuilds DOM.
-const MARKERS = LANGUAGES.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lng }));
-const BY_ID = new Map(LANGUAGES.map((l) => [l.id, l]));
+// A single marker payload for either layer; `key` is unique across both layers.
+interface Marker {
+  key: string;
+  kind: LayerKind;
+  id: number;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+const LANG_MARKERS: Marker[] = LANGUAGES.map((l) => ({ key: `lang-${l.id}`, kind: 'lang', id: l.id, name: l.name, lat: l.lat, lng: l.lng }));
+const TOWN_MARKERS: Marker[] = TOWNS.map((t) => ({ key: `town-${t.id}`, kind: 'town', id: t.id, name: t.name, lat: t.lat, lng: t.lng }));
+const MARKERS: Marker[] = [...LANG_MARKERS, ...TOWN_MARKERS];
+
+const LANG_BY_ID = new Map(LANGUAGES.map((l) => [l.id, l]));
+const TOWN_BY_ID = new Map(TOWNS.map((t) => [t.id, t]));
+
+// Status for a marker in a given year, regardless of which layer it belongs to.
+const statusOf = (m: Marker, year: number): Vitality =>
+  m.kind === 'lang' ? statusAt(LANG_BY_ID.get(m.id)!, year) : townStatusAt(TOWN_BY_ID.get(m.id)!, year);
 
 const htmlLat = (d: any) => d.lat;
 const htmlLng = (d: any) => d.lng;
@@ -30,12 +52,13 @@ export default function GlobeView({
   height,
   year,
   filters,
+  layers,
   autoRotate,
   onUserInteract,
   onSelect,
 }: Props) {
   const globeEl = useRef<any>(null);
-  const els = useRef<Map<number, HTMLDivElement>>(new Map());
+  const els = useRef<Map<string, HTMLDivElement>>(new Map());
   const [land, setLand] = useState<any[]>([]);
 
   // Refs so the (stable) element builder always sees current values.
@@ -43,6 +66,8 @@ export default function GlobeView({
   yearRef.current = year;
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   const onInteractRef = useRef(onUserInteract);
@@ -95,33 +120,32 @@ export default function GlobeView({
     if (g) g.controls().autoRotate = autoRotate;
   }, [autoRotate]);
 
-  // Re-color / show-hide markers per year + filter — no DOM rebuild.
+  // Re-color / show-hide markers per year + vitality filter + layer toggle — no DOM rebuild.
   useEffect(() => {
-    for (const l of LANGUAGES) {
-      const el = els.current.get(l.id);
+    for (const m of MARKERS) {
+      const el = els.current.get(m.key);
       if (!el) continue;
-      const s = statusAt(l, year);
+      const s = statusOf(m, year);
       el.style.setProperty('--c', colorFor(s));
-      el.classList.toggle('filtered-out', !filters[s]);
+      el.classList.toggle('filtered-out', !filters[s] || !layers[m.kind]);
     }
-  }, [year, filters]);
+  }, [year, filters, layers]);
 
-  const buildElement = useCallback((d: any) => {
+  const buildElement = useCallback((d: Marker) => {
     const wrap = document.createElement('div');
-    wrap.className = 'lang-marker';
+    wrap.className = `lang-marker ${d.kind === 'town' ? 'town' : 'lang'}`;
     wrap.innerHTML = '<div class="lm-scale"><span class="lm-dot"></span></div><span class="lm-label"></span>';
     (wrap.querySelector('.lm-label') as HTMLElement).textContent = d.name;
     const dot = wrap.querySelector('.lm-dot') as HTMLElement;
     dot.addEventListener('click', (e) => {
       e.stopPropagation();
-      onSelectRef.current(d.id);
+      onSelectRef.current(d.kind, d.id);
     });
-    els.current.set(d.id, wrap);
+    els.current.set(d.key, wrap);
 
-    const rec = BY_ID.get(d.id)!;
-    const s = statusAt(rec, yearRef.current);
+    const s = statusOf(d, yearRef.current);
     wrap.style.setProperty('--c', colorFor(s));
-    wrap.classList.toggle('filtered-out', !filtersRef.current[s]);
+    wrap.classList.toggle('filtered-out', !filtersRef.current[s] || !layersRef.current[d.kind]);
     return wrap;
   }, []);
 
@@ -146,7 +170,7 @@ export default function GlobeView({
       htmlLat={htmlLat}
       htmlLng={htmlLng}
       htmlAltitude={0.012}
-      htmlElement={buildElement}
+      htmlElement={buildElement as any}
       htmlElementVisibilityModifier={visibilityModifier}
     />
   );

@@ -203,6 +203,19 @@ body {
   border-radius: 2px;
   flex: none;
 }
+/* layer-row swatches show the marker shape rather than a vitality colour */
+.toggle .swatch.layer-dot {
+  border-radius: 50%;
+  background: var(--text);
+}
+.toggle .swatch.layer-diamond {
+  border-radius: 1px;
+  background: var(--text);
+  transform: rotate(45deg) scale(0.86);
+}
+.filter .head.spacer {
+  margin-top: 8px;
+}
 .toggle .count {
   margin-left: auto;
   font-family: var(--mono);
@@ -467,6 +480,16 @@ input[type='range'].range::-moz-range-thumb {
 .lm-dot:hover {
   transform: scale(1.6);
   box-shadow: 0 0 0 1.5px rgba(3, 5, 12, 0.8), 0 0 14px 0 var(--c, #888);
+}
+/* towns render as diamonds so the two layers stay distinguishable */
+.lang-marker.town .lm-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 1.5px;
+  transform: rotate(45deg);
+}
+.lang-marker.town .lm-dot:hover {
+  transform: rotate(45deg) scale(1.55);
 }
 .lm-label {
   position: absolute;
