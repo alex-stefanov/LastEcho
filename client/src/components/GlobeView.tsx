@@ -488,7 +488,6 @@ function GlobeView({ yearLangs, width, height, filters, autoRotate, theme, onUse
       objectLabel={(d: any) => d.kind === 'dot' ? d.name : ''}
       onObjectClick={(d: any) => {
         if (d.kind === 'grid') {
-          // Small cluster → show language list; large → zoom in to break it apart
           if (d.count <= 15) onClusterRef.current(d.members.map((m: ClusterMember) => m.iso));
           else zoomRef.current(d.lat, d.lng);
         } else if (d.kind === 'perm') {

@@ -30,7 +30,6 @@ type Filters = Record<VitalityGroup, boolean>;
 const THEME_KEY = 'lastecho-theme';
 const EMPTY_COUNTS: Record<VitalityGroup, number> = { healthy: 0, watch: 0, serious: 0, gone: 0, unknown: 0 };
 const ALL_GROUPS_ON: Filters = { healthy: true, watch: true, serious: true, gone: true, unknown: true };
-// The tree view still runs on the precomputed, bundled dataset.
 const languages = languagesData.languages as LangRecord[];
 
 export default function App() {
@@ -116,6 +115,7 @@ export default function App() {
 
   const selectedLang = selected === null ? null : languages.find((l) => l.id === selected) ?? null;
 
+
   const underOutreach = useMemo(
     () => Object.values(outreachStatus).filter((o) => o.hasPending || o.hasApproved).length,
     [outreachStatus],
@@ -183,22 +183,24 @@ export default function App() {
         </>
       )}
 
-      {view === 'tree' && <TreeGraph year={year} selected={selected} onSelect={(id) => setSelected(id)} />}
+      {view === 'tree' && (
+        <TreeGraph
+          year={year}
+          yearData={yearData}
+          selectedIso={selectedIso}
+          onSelect={(iso) => setSelectedIso(iso)}
+        />
+      )}
+
+      {selectedYearLang && (
+        <YearLangCard lang={selectedYearLang} year={year} onClose={() => setSelectedIso(null)} />
+      )}
 
       <Wordmark />
       <Nav view={view} onChange={setView} />
       <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
 
       <Timeline year={year} setYear={setYear} playing={playing} setPlaying={setPlaying} ready={ready} />
-
-      {view === 'tree' && selectedLang && (
-        <SelectedCard
-          lang={selectedLang}
-          year={year}
-          outreach={outreachStatus[selectedLang.id]}
-          onClose={() => setSelected(null)}
-        />
-      )}
     </div>
   );
 }

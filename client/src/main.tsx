@@ -4,6 +4,11 @@ import App from './App';
 import AdminView from './AdminView';
 import './index.css';
 
+const savedTheme = localStorage.getItem('lastecho-theme');
+if (savedTheme === 'dark' || savedTheme === 'light') {
+  document.documentElement.setAttribute('data-theme', savedTheme);
+}
+
 // /admin is a separate, unlinked surface for the human reviewing outreach
 // drafts — not part of the public globe app, so a plain path check is enough
 // without pulling in a router dependency.
