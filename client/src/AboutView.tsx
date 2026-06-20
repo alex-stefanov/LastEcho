@@ -6,44 +6,32 @@
 // Space Grotesk body, the vitality palette, glass panels, atmospheric glows —
 // but, unlike the fixed full-screen app, it scrolls.
 //
-// The "Rescue Queue" preview is computed live from the same bundled dataset
-// the globe runs on (data/languages.json): the still-spoken languages with the
-// nearest predicted silence. It is a real slice of the data, not a mock.
+// The "Rescue Queue" preview is computed live from the same real, per-year
+// Glottolog dataset the globe runs on (data/timeline_by_year/{TL_TODAY}.json),
+// ranked with the app's own triage scoring. It is a real slice of the data,
+// not a mock.
 // ---------------------------------------------------------------------------
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
-import languagesData from './data/languages.json';
+import { getCachedYear, loadYear, TL_TODAY, GROUP_COLOR, type VitalityGroup, type YearData } from './data/timeline';
+import { rankLanguages, buildFamilySizes, buildLogMax, DEFAULT_WEIGHTS, type RankedLang } from './data/triage';
 
 const THEME_KEY = 'lastecho-theme';
 
-interface LangRow {
-  id: number;
-  name: string;
-  region: string;
-  family: string;
-  speakers: number;
-  docLevel: string;
-  lostYear: number;
-}
-
-const TODAY = (languagesData as { meta: { today: number } }).meta.today;
-const ALL = (languagesData as { languages: LangRow[] }).languages;
-
-// Urgency hue keyed off years remaining — mirrors the globe's vitality scale.
-function urgencyColor(yrs: number): string {
-  if (yrs <= 1) return '#ef5b3f'; // serious
-  if (yrs <= 2) return '#f0853f';
-  if (yrs <= 4) return '#e8c34a'; // watch
-  return '#35d49a'; // healthy-ish
-}
-
-const DOC_LABEL: Record<string, string> = {
-  none: 'No record',
-  wordlist: 'Wordlist only',
-  'grammar sketch': 'Grammar sketch',
-  'full grammar': 'Full grammar',
+const RISK_LABEL: Record<string, string> = {
+  critical: 'Critical',
+  at_risk: 'At risk',
+  vulnerable: 'Vulnerable',
+  unknown: 'Unknown',
+  stable: 'Stable',
+  recovering: 'Recovering',
+  alive: 'Alive',
 };
+
+function urgencyColor(group: VitalityGroup): string {
+  return GROUP_COLOR[group];
+}
 
 // Decorative field of faint, twinkling language-dots behind the hero. Generated
 // deterministically so the layout is stable across renders (no layout jitter).
@@ -138,15 +126,22 @@ export default function AboutView() {
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
-  // The real rescue queue: still-spoken languages with the nearest silence.
-  const queue = useMemo(
-    () =>
-      [...ALL]
-        .filter((l) => l.lostYear >= TODAY && l.speakers > 0)
-        .sort((a, b) => a.lostYear - b.lostYear || a.speakers - b.speakers)
-        .slice(0, 5),
-    [],
-  );
+  // The real rescue queue: top-5 of the app's own triage ranking over the
+  // current year's Glottolog snapshot — same data and scoring the globe uses.
+  const [queue, setQueue] = useState<RankedLang[]>([]);
+  useEffect(() => {
+    const apply = (data: YearData) => {
+      const familySizes = buildFamilySizes(data.languages);
+      const logMax = buildLogMax(data.languages);
+      setQueue(rankLanguages(data.languages, DEFAULT_WEIGHTS, familySizes, logMax, 5));
+    };
+    const cached = getCachedYear(TL_TODAY);
+    if (cached) {
+      apply(cached);
+      return;
+    }
+    loadYear(TL_TODAY).then(apply).catch(() => {});
+  }, []);
 
   return (
     <main className="about">
@@ -267,31 +262,30 @@ export default function AboutView() {
           <p className="eyebrow">The Rescue Queue</p>
           <h2>A ranked list of who needs attention first.</h2>
           <p>
-            The main ranking factor is the estimated time before a language disappears. Below is a live slice
-            from LastEcho's own dataset — the still-spoken languages with the nearest predicted silence.
+            Ranked by extinction risk, speaker scarcity, and linguistic uniqueness. Below is a live slice of
+            LastEcho's own triage score, computed from the same Glottolog dataset the globe runs on.
           </p>
           <ol className="about-queue">
             {queue.map((l, i) => {
-              const yrs = l.lostYear - TODAY;
-              const color = urgencyColor(yrs);
+              const color = urgencyColor(l.vitality_group);
               return (
-                <li key={l.id} className="about-queue-row">
+                <li key={l.iso_code} className="about-queue-row">
                   <span className="aq-rank num">{String(i + 1).padStart(2, '0')}</span>
                   <span className="aq-bar" style={{ background: color }} />
                   <span className="aq-main">
                     <span className="aq-name">{l.name}</span>
                     <span className="aq-meta">
-                      {l.region} · {l.family} · {l.speakers.toLocaleString()} speakers
+                      {l.family_root} · {(l.speakers ?? 0).toLocaleString()} speakers
                     </span>
                   </span>
                   <span className="aq-doc" style={{ color }}>
-                    {DOC_LABEL[l.docLevel] ?? l.docLevel}
+                    {RISK_LABEL[l.risk] ?? l.risk}
                   </span>
                   <span className="aq-left">
                     <span className="aq-years num" style={{ color }}>
-                      {yrs <= 0 ? 'now' : `${yrs} yr${yrs === 1 ? '' : 's'}`}
+                      {Math.round(l.score * 100)}%
                     </span>
-                    <span className="aq-left-label">est. left</span>
+                    <span className="aq-left-label">priority score</span>
                   </span>
                 </li>
               );
