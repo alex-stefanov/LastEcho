@@ -1,0 +1,17 @@
+# gitleaks configuration. Extends the bundled default ruleset and adds an
+# allowlist for files that intentionally contain placeholder, non-secret values.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Templates and example env files hold placeholders, not real secrets"
+paths = [
+  '''.*\.example$''',
+  '''.*\.env\.local\.example$''',
+]
+# Known historical placeholder (a weak demo password that lived in
+# client/.env.local.example before admin auth moved server-side). Not a real
+# credential; allowlisted so full-history scans stay green.
+regexes = [
+  '''admin123''',
+]
