@@ -5,6 +5,7 @@ import Timeline from './components/Timeline';
 import Wordmark from './components/Wordmark';
 import SelectedCard from './components/SelectedCard';
 import YearLangCard from './components/YearLangCard';
+import ClusterCard from './components/ClusterCard';
 import RotateControl from './components/RotateControl';
 import Nav, { type View } from './components/Nav';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
@@ -13,8 +14,10 @@ import { type LangRecord } from './data/mockLanguages';
 import languagesData from './data/languages.json';
 import {
   countByGroup,
+  GROUP_COLOR,
   GROUP_LABEL,
   GROUP_ORDER,
+  LEVEL_URGENCY,
   getCachedYear,
   loadYear,
   TL_TODAY,
@@ -37,6 +40,8 @@ export default function App() {
   const [autoRotate, setAutoRotate] = useState(true);
   const [filters, setFilters] = useState<Filters>(ALL_GROUPS_ON);
   const [selectedIso, setSelectedIso] = useState<string | null>(null);
+  // Store only ISOs so the panel re-derives vitality data whenever the year changes.
+  const [selectedClusterIsos, setSelectedClusterIsos] = useState<string[] | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   const [theme, setTheme] = useState<Theme>(
@@ -96,6 +101,19 @@ export default function App() {
     [selectedIso, yearData],
   );
 
+  // Re-derived every time yearData or selectedClusterIsos changes, so the
+  // ClusterCard always shows the current year's vitality status.
+  const selectedClusterMembers = useMemo(() => {
+    if (!selectedClusterIsos || !yearData) return null;
+    const members = selectedClusterIsos.flatMap((iso) => {
+      const l = yearData.languages.find((y) => y.iso_code === iso);
+      if (!l) return [];
+      return [{ iso: l.iso_code, name: l.name, color: GROUP_COLOR[l.vitality_group], group: l.vitality_group, level: l.risk }];
+    });
+    members.sort((a, b) => LEVEL_URGENCY[b.level] - LEVEL_URGENCY[a.level]);
+    return members.length > 0 ? members : null;
+  }, [selectedClusterIsos, yearData]);
+
   const selectedLang = selected === null ? null : languages.find((l) => l.id === selected) ?? null;
 
   const underOutreach = useMemo(
@@ -116,7 +134,8 @@ export default function App() {
               autoRotate={autoRotate}
               theme={theme}
               onUserInteract={() => setAutoRotate(false)}
-              onSelect={(iso) => setSelectedIso(iso)}
+              onSelect={(iso) => { setSelectedIso(iso); setSelectedClusterIsos(null); }}
+              onClusterSelect={(isos) => { setSelectedClusterIsos(isos); setSelectedIso(null); }}
             />
           </div>
           <div className="vignette" />
@@ -151,6 +170,14 @@ export default function App() {
               lang={selectedYearLang}
               year={year}
               onClose={() => setSelectedIso(null)}
+            />
+          )}
+
+          {selectedClusterMembers && !selectedYearLang && (
+            <ClusterCard
+              members={selectedClusterMembers}
+              onSelect={(iso) => { setSelectedIso(iso); setSelectedClusterIsos(null); }}
+              onClose={() => setSelectedClusterIsos(null)}
             />
           )}
         </>
