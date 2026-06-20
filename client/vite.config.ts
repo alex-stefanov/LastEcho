@@ -12,4 +12,7 @@ export default defineConfig({
   },
   // Ensure a single three instance (globe.gl + three-globe must share it).
   resolve: { dedupe: ['three'] },
+  // Build straight into the OpenKBS static-site dir (./site), which
+  // `openkbs site deploy` ships to S3 + CloudFront.
+  build: { outDir: '../site', emptyOutDir: true },
 });
