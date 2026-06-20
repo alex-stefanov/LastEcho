@@ -369,7 +369,7 @@ export default function GlobeView({ yearLangs, width, height, filters, autoRotat
       objectLat={clLat}
       objectLng={clLng}
       objectAltitude={0.05}
-      objectFacesSurface={false}
+      objectFacesSurfaces={false}
       objectThreeObject={buildClusterObject as any}
       onObjectClick={(d: any) => zoomRef.current(d.lat, d.lng)}
       onGlobeClick={(({ lat, lng }: { lat: number; lng: number }, event: MouseEvent) => {

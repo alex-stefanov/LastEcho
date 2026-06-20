@@ -1,289 +1,367 @@
-import { useEffect, useState } from 'react';
-import {
-  approveDraft,
-  escalateDraft,
-  fetchOutreachQueue,
-  markReplied,
-  markSent,
-  rejectDraft,
-  runTriage,
-  type DraftStatus,
-  type OutreachDraft,
-  type OutreachTier,
-} from './data/api';
+import { useEffect, useMemo, useState } from 'react';
+import type { DraftStatus, OutreachDraft } from './data/api';
+import ThemeToggle, { type Theme } from './components/ThemeToggle';
 
-const TABS: { key: DraftStatus; label: string }[] = [
-  { key: 'pending_review', label: 'Pending' },
-  { key: 'approved', label: 'Approved' },
-  { key: 'sent', label: 'Sent' },
-  { key: 'replied', label: 'Replied' },
-  { key: 'rejected', label: 'Rejected' },
+type AdminViewFilter = 'review' | 'ready' | 'active' | 'closed';
+
+const THEME_KEY = 'lastecho-theme';
+
+type StatusTone = 'pending' | 'approved' | 'sent' | 'replied' | 'rejected' | 'no_reply';
+
+const FILTERS: { key: AdminViewFilter; label: string; statuses: DraftStatus[] }[] = [
+  { key: 'review', label: 'Review', statuses: ['pending_review'] },
+  { key: 'ready', label: 'Ready', statuses: ['approved'] },
+  { key: 'active', label: 'Sent', statuses: ['sent', 'no_reply'] },
+  { key: 'closed', label: 'Closed', statuses: ['replied', 'rejected'] },
 ];
 
-const TIER_LABEL: Record<OutreachTier, string> = {
-  local: 'Local',
-  continental: 'Continental',
-  global: 'Global',
+const STATUS_LABEL: Record<DraftStatus, string> = {
+  pending_review: 'Pending review',
+  approved: 'Ready to send',
+  rejected: 'Rejected',
+  sent: 'Awaiting reply',
+  replied: 'Replied',
+  no_reply: 'No reply',
 };
+
+const MOCK_DRAFTS: OutreachDraft[] = [
+  {
+    id: 1001,
+    languageId: 14,
+    institutionId: 'local-batsbi-center',
+    tier: 'local',
+    subject: 'Documentation support for Batsbi speakers',
+    body:
+      'Hello,\n\nLastEcho flagged Batsbi as a high-priority language for near-term documentation support. We are looking for a local partner who can confirm current speaker estimates, existing recordings, and whether community-led documentation work is already active.\n\nCould your team advise who the right contact would be for this language community?',
+    ask: 'Confirm contact, speaker estimate, and active documentation status.',
+    status: 'pending_review',
+    createdAt: '2026-06-18T08:30:00.000Z',
+    decidedAt: null,
+    sentAt: null,
+    canEscalate: false,
+    languageName: 'Batsbi',
+    institutionName: 'Caucasus Language Archive',
+    institutionUrl: 'https://example.org/caucasus-archive',
+    institutionContactUrl: 'https://example.org/caucasus-archive/contact',
+    institutionEmail: 'contact@example.org',
+  },
+  {
+    id: 1002,
+    languageId: 22,
+    institutionId: 'continental-archive',
+    tier: 'continental',
+    subject: 'Partner request: Koro language preservation',
+    body:
+      'Hello,\n\nWe are preparing an outreach packet for Koro and would like to verify which organizations are already working with the community. The goal is not to duplicate effort, but to route urgent documentation support to the right people.\n\nCould you point us toward the best current contact or archive record?',
+    ask: 'Find the right active contact or archive record before escalation.',
+    status: 'approved',
+    createdAt: '2026-06-17T13:12:00.000Z',
+    decidedAt: '2026-06-18T09:42:00.000Z',
+    sentAt: null,
+    canEscalate: false,
+    languageName: 'Koro',
+    institutionName: 'Endangered Languages Documentation Programme',
+    institutionUrl: 'https://example.org/eldp',
+    institutionContactUrl: 'https://example.org/eldp/contact',
+    institutionEmail: null,
+  },
+  {
+    id: 1003,
+    languageId: 31,
+    institutionId: 'local-oral-history',
+    tier: 'local',
+    subject: 'Request for current materials on N|uu',
+    body:
+      'Hello,\n\nLastEcho is tracking N|uu as a language where existing documentation and community access should be checked carefully. We would like to verify whether there are active oral-history recordings, teaching materials, or community contacts that should be prioritized.\n\nCould you share the correct contact path?',
+    ask: 'Check whether existing materials are accessible to the community.',
+    status: 'sent',
+    createdAt: '2026-06-08T10:04:00.000Z',
+    decidedAt: '2026-06-08T15:24:00.000Z',
+    sentAt: '2026-06-09T11:20:00.000Z',
+    canEscalate: true,
+    languageName: 'N|uu',
+    institutionName: 'Southern African Oral History Network',
+    institutionUrl: 'https://example.org/oral-history',
+    institutionContactUrl: 'https://example.org/oral-history/contact',
+    institutionEmail: 'archive@example.org',
+  },
+  {
+    id: 1004,
+    languageId: 43,
+    institutionId: 'global-linguistics',
+    tier: 'global',
+    subject: 'Follow-up: urgent record check for Ainu',
+    body:
+      'Hello,\n\nWe are following up after a previous local and continental search. LastEcho needs help validating whether Ainu support should be routed to an active documentation project, a university archive, or a community-led organization.\n\nAny verified direction would help us avoid sending support to stale contacts.',
+    ask: 'Validate the best global route after local search stalled.',
+    status: 'replied',
+    createdAt: '2026-06-02T09:45:00.000Z',
+    decidedAt: '2026-06-02T10:10:00.000Z',
+    sentAt: '2026-06-03T08:00:00.000Z',
+    canEscalate: false,
+    languageName: 'Ainu',
+    institutionName: 'Global Language Archive Network',
+    institutionUrl: 'https://example.org/global-archive',
+    institutionContactUrl: 'https://example.org/global-archive/contact',
+    institutionEmail: 'desk@example.org',
+  },
+  {
+    id: 1005,
+    languageId: 56,
+    institutionId: 'regional-institute',
+    tier: 'local',
+    subject: 'Draft declined: Wukchumni local contact',
+    body:
+      'This draft was declined because the proposed organization had no clear language preservation role. A better local partner should be found before sending.',
+    ask: 'Replace the organization before creating a new draft.',
+    status: 'rejected',
+    createdAt: '2026-06-15T16:30:00.000Z',
+    decidedAt: '2026-06-16T08:10:00.000Z',
+    sentAt: null,
+    canEscalate: false,
+    languageName: 'Wukchumni',
+    institutionName: 'Regional Culture Office',
+    institutionUrl: 'https://example.org/regional-culture',
+    institutionContactUrl: 'https://example.org/regional-culture/contact',
+    institutionEmail: null,
+  },
+];
+
+function toneFor(status: DraftStatus): StatusTone {
+  return status === 'pending_review' ? 'pending' : status;
+}
 
 function mailtoFor(d: OutreachDraft): string {
   const params = new URLSearchParams({ subject: d.subject, body: d.body });
   return `mailto:${d.institutionEmail}?${params.toString()}`;
 }
 
-function daysSince(iso: string): number {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+function formatDate(iso?: string | null): string {
+  if (!iso) return '—';
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(iso));
 }
 
 export default function AdminView() {
-  const [tab, setTab] = useState<DraftStatus>('pending_review');
-  const [queue, setQueue] = useState<OutreachDraft[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [stamp, setStamp] = useState<{ id: number; kind: 'approved' | 'rejected' } | null>(null);
-  const [sweeping, setSweeping] = useState(false);
-  const [sweepNote, setSweepNote] = useState<string | null>(null);
+  const [filter, setFilter] = useState<AdminViewFilter>('review');
+  const [drafts, setDrafts] = useState<OutreachDraft[]>(MOCK_DRAFTS);
+  const [selectedId, setSelectedId] = useState<number>(MOCK_DRAFTS[0].id);
   const [copied, setCopied] = useState(false);
-  const [escalateNote, setEscalateNote] = useState<string | null>(null);
-
-  const load = (status: DraftStatus) => {
-    setLoading(true);
-    setError(null);
-    fetchOutreachQueue(status)
-      .then((items) => {
-        setQueue(items);
-        setSelectedId(items[0]?.id ?? null);
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  };
+  const [theme, setTheme] = useState<Theme>(() =>
+    localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark',
+  );
 
   useEffect(() => {
-    load(tab);
-    setCopied(false);
-    setEscalateNote(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
 
-  const selected = queue.find((d) => d.id === selectedId) ?? null;
+  const activeFilter = FILTERS.find((item) => item.key === filter) ?? FILTERS[0];
 
-  const decide = (id: number, action: 'approve' | 'reject') => {
-    setBusyId(id);
-    const fn = action === 'approve' ? approveDraft : rejectDraft;
-    fn(id)
-      .then(() => {
-        setStamp({ id, kind: action === 'approve' ? 'approved' : 'rejected' });
-        setTimeout(() => {
-          setQueue((q) => q.filter((d) => d.id !== id));
-          setSelectedId((cur) => (cur === id ? null : cur));
-          setStamp(null);
-        }, 620);
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setBusyId(null));
-  };
+  const visibleDrafts = useMemo(
+    () => drafts.filter((draft) => activeFilter.statuses.includes(draft.status)),
+    [drafts, activeFilter],
+  );
 
-  const sweep = () => {
-    setSweeping(true);
-    setSweepNote(null);
-    runTriage()
-      .then((r) => {
-        setSweepNote(`Drafted ${r.drafted}, skipped ${r.skipped} (already handled).`);
-        load(tab);
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setSweeping(false));
+  const selected = drafts.find((draft) => draft.id === selectedId) ?? visibleDrafts[0] ?? null;
+
+  const stats = useMemo(
+    () => ({
+      review: drafts.filter((draft) => draft.status === 'pending_review').length,
+      ready: drafts.filter((draft) => draft.status === 'approved').length,
+      sent: drafts.filter((draft) => draft.status === 'sent' || draft.status === 'no_reply').length,
+    }),
+    [drafts],
+  );
+
+  const setStatus = (id: number, status: DraftStatus) => {
+    setDrafts((items) =>
+      items.map((draft) =>
+        draft.id === id
+          ? {
+              ...draft,
+              status,
+              decidedAt: status === 'approved' || status === 'rejected' ? new Date().toISOString() : draft.decidedAt,
+              sentAt: status === 'sent' ? new Date().toISOString() : draft.sentAt,
+              canEscalate: status === 'sent' ? draft.canEscalate : false,
+            }
+          : draft,
+      ),
+    );
   };
 
   const copyDraft = () => {
-    if (!selected) return;
+    if (!selected || !navigator.clipboard) return;
     navigator.clipboard.writeText(`${selected.subject}\n\n${selected.body}`).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
+      setTimeout(() => setCopied(false), 1400);
     });
   };
 
-  const doMarkSent = (id: number) => {
-    setBusyId(id);
-    markSent(id)
-      .then(() => setQueue((q) => q.filter((d) => d.id !== id)))
-      .catch((e) => setError(String(e)))
-      .finally(() => setBusyId(null));
-  };
-
-  const doMarkReplied = (id: number) => {
-    setBusyId(id);
-    markReplied(id)
-      .then(() => setQueue((q) => q.filter((d) => d.id !== id)))
-      .catch((e) => setError(String(e)))
-      .finally(() => setBusyId(null));
-  };
-
-  const doEscalate = (id: number) => {
-    setBusyId(id);
-    escalateDraft(id)
-      .then((next) => {
-        setEscalateNote(
-          next
-            ? `No reply recorded. Next rung drafted: ${TIER_LABEL[next.tier]} — ${next.institutionName} (see Pending).`
-            : 'No reply recorded. This was already the last rung (Global) — nothing further to escalate to.',
-        );
-        setQueue((q) => q.filter((d) => d.id !== id));
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setBusyId(null));
-  };
-
   return (
-    <div className="admin">
-      <header className="admin-head">
-        <div className="admin-mark">
-          <span className="admin-eyebrow">LastEcho</span>
-          <h1>Dispatch Desk</h1>
-        </div>
-        <div className="admin-actions">
-          {sweepNote && <span className="admin-sweep-note">{sweepNote}</span>}
-          <button className={`admin-sweep ${sweeping ? 'running' : ''}`} onClick={sweep} disabled={sweeping}>
-            {sweeping ? 'Sweeping…' : 'Run sweep'}
-          </button>
-        </div>
-      </header>
+    <main className="admin">
+      <section className="admin-shell">
+        <header className="admin-topbar">
+          <div>
+            <h1>Signal Desk</h1>
+            <p className="admin-tagline">Admin console for outreach review and partner contact decisions.</p>
+          </div>
+          <ThemeToggle theme={theme} onToggle={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))} />
+        </header>
 
-      <nav className="admin-tabs">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            className={`admin-tab ${tab === t.key ? 'active' : ''}`}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+        <section className="admin-metrics" aria-label="Admin overview">
+          <article className="admin-metric-card">
+            <span>Review</span>
+            <strong>{stats.review}</strong>
+          </article>
+          <article className="admin-metric-card">
+            <span>Ready</span>
+            <strong>{stats.ready}</strong>
+          </article>
+          <article className="admin-metric-card">
+            <span>Sent</span>
+            <strong>{stats.sent}</strong>
+          </article>
+        </section>
 
-      {error && <div className="admin-error">{error}</div>}
-      {escalateNote && <div className="admin-note">{escalateNote}</div>}
-
-      <div className="admin-body">
-        <ul className="admin-index">
-          {loading && <li className="admin-index-empty">Loading…</li>}
-          {!loading && queue.length === 0 && (
-            <li className="admin-index-empty">Nothing in {TABS.find((t) => t.key === tab)?.label.toLowerCase()}.</li>
-          )}
-          {queue.map((d) => (
-            <li key={d.id}>
-              <button
-                className={`admin-card ${selectedId === d.id ? 'active' : ''} ${stamp?.id === d.id ? `stamped-${stamp.kind}` : ''}`}
-                onClick={() => setSelectedId(d.id)}
-              >
-                <span className="admin-card-to">
-                  {d.institutionName} <span className="admin-card-tier">{TIER_LABEL[d.tier]}</span>
-                </span>
-                <span className="admin-card-re">Re: {d.languageName}</span>
-                <span className="admin-card-subject">{d.subject}</span>
-                {d.status === 'sent' && d.sentAt && (
-                  <span className="admin-card-sent">Sent {daysSince(d.sentAt)}d ago</span>
-                )}
-                {stamp?.id === d.id && (
-                  <span className={`admin-stamp ${stamp.kind}`}>{stamp.kind === 'approved' ? 'APPROVED' : 'DECLINED'}</span>
-                )}
-              </button>
-            </li>
+        <nav className="admin-tabs" aria-label="Outreach filters">
+          {FILTERS.map((item) => (
+            <button
+              key={item.key}
+              className={`admin-tab ${filter === item.key ? 'active' : ''}`}
+              type="button"
+              onClick={() => {
+                setFilter(item.key);
+                setSelectedId((current) => {
+                  const nextVisible = drafts.filter((draft) => item.statuses.includes(draft.status));
+                  return nextVisible.some((draft) => draft.id === current) ? current : nextVisible[0]?.id ?? current;
+                });
+              }}
+            >
+              {item.label}
+            </button>
           ))}
-        </ul>
+        </nav>
 
-        <section className="admin-memo">
-          {!selected && <div className="admin-memo-empty">Select an item from the index to read the full draft.</div>}
-          {selected && (
-            <article className="admin-sheet">
-              <div className="admin-sheet-row">
-                <span className="admin-sheet-label">To</span>
-                <a href={selected.institutionUrl} target="_blank" rel="noreferrer">
-                  {selected.institutionName}
-                </a>
-                <span className="admin-sheet-tier">{TIER_LABEL[selected.tier]} rung</span>
-              </div>
-              <div className="admin-sheet-row">
-                <span className="admin-sheet-label">Re</span>
-                <span>{selected.languageName}</span>
-              </div>
-              <div className="admin-sheet-row">
-                <span className="admin-sheet-label">Subject</span>
-                <span className="admin-sheet-subject">{selected.subject}</span>
-              </div>
-              <p className="admin-sheet-body">{selected.body}</p>
-              <p className="admin-sheet-ask">{selected.ask}</p>
+        <section className="admin-workspace">
+          <aside className="admin-queue" aria-label="Outreach queue">
+            <div className="admin-section-head">
+              <span>Queue</span>
+              <strong>{visibleDrafts.length}</strong>
+            </div>
 
-              {tab === 'pending_review' && (
-                <div className="admin-stamp-row">
-                  <button
-                    className="admin-stamp-btn approve"
-                    disabled={busyId === selected.id}
-                    onClick={() => decide(selected.id, 'approve')}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    className="admin-stamp-btn reject"
-                    disabled={busyId === selected.id}
-                    onClick={() => decide(selected.id, 'reject')}
-                  >
-                    Reject
-                  </button>
+            {visibleDrafts.length === 0 && <div className="admin-empty">No drafts here.</div>}
+
+            {visibleDrafts.map((draft) => (
+              <button
+                key={draft.id}
+                type="button"
+                className={`admin-queue-card ${selected?.id === draft.id ? 'active' : ''}`}
+                onClick={() => setSelectedId(draft.id)}
+              >
+                <span className={`admin-status-line tone-${toneFor(draft.status)}`} />
+                <span className="admin-queue-main">
+                  <span className="admin-queue-title">{draft.languageName}</span>
+                  <span className="admin-queue-org">{draft.institutionName}</span>
+                </span>
+              </button>
+            ))}
+          </aside>
+
+          <section className="admin-detail" aria-label="Selected outreach draft">
+            {!selected && <div className="admin-empty large">Select a draft to preview it.</div>}
+
+            {selected && (
+              <article className="admin-panel-sheet">
+                <div className="admin-detail-head">
+                  <h2>{selected.languageName}</h2>
                 </div>
-              )}
 
-              {tab === 'approved' && (
-                <div className="admin-send">
-                  {selected.institutionEmail ? (
-                    <a className="admin-send-btn mail" href={mailtoFor(selected)}>
-                      Open in email →
+                <div className="admin-field-grid">
+                  <div className="admin-field wide">
+                    <span>Institution</span>
+                    <a href={selected.institutionUrl} target="_blank" rel="noreferrer">
+                      {selected.institutionName}
                     </a>
-                  ) : (
+                  </div>
+                  <div className="admin-field">
+                    <span>Contact</span>
+                    <strong>{selected.institutionEmail ?? 'Contact page'}</strong>
+                  </div>
+                  <div className="admin-field">
+                    <span>Status</span>
+                    <strong>{STATUS_LABEL[selected.status]}</strong>
+                  </div>
+                  <div className="admin-field">
+                    <span>Created</span>
+                    <strong>{formatDate(selected.createdAt)}</strong>
+                  </div>
+                </div>
+
+                <div className="admin-message-card">
+                  <span>Subject</span>
+                  <h3>{selected.subject}</h3>
+                  <pre>{selected.body}</pre>
+                </div>
+
+                <div className="admin-check-row">
+                  <span>Admin check</span>
+                  <p>{selected.ask}</p>
+                </div>
+
+                <div className="admin-actions-row">
+                  {selected.status === 'pending_review' && (
                     <>
-                      <a className="admin-send-btn contact" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">
-                        Open contact page ↗
-                      </a>
-                      <button className="admin-copy-btn" onClick={copyDraft}>
-                        {copied ? 'Copied' : 'Copy draft text'}
+                      <button className="admin-action primary" type="button" onClick={() => setStatus(selected.id, 'approved')}>
+                        Approve
+                      </button>
+                      <button className="admin-action" type="button" onClick={() => setStatus(selected.id, 'rejected')}>
+                        Reject
                       </button>
                     </>
                   )}
-                  <button
-                    className="admin-copy-btn"
-                    disabled={busyId === selected.id}
-                    onClick={() => doMarkSent(selected.id)}
-                  >
-                    Mark as sent
-                  </button>
-                </div>
-              )}
 
-              {tab === 'sent' && (
-                <div className="admin-send">
-                  <button
-                    className="admin-stamp-btn approve"
-                    disabled={busyId === selected.id}
-                    onClick={() => doMarkReplied(selected.id)}
-                  >
-                    Replied
-                  </button>
-                  <button
-                    className="admin-stamp-btn reject"
-                    disabled={busyId === selected.id || !selected.canEscalate}
-                    onClick={() => doEscalate(selected.id)}
-                    title={selected.canEscalate ? '' : 'Wait at least 7 days from send before escalating'}
-                  >
-                    {selected.canEscalate ? 'No reply — escalate' : 'Too soon to escalate'}
-                  </button>
+                  {selected.status === 'approved' && (
+                    <>
+                      {selected.institutionEmail ? (
+                        <a className="admin-action primary" href={mailtoFor(selected)}>
+                          Open email
+                        </a>
+                      ) : (
+                        <a className="admin-action primary" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">
+                          Contact page
+                        </a>
+                      )}
+                      <button className="admin-action" type="button" onClick={copyDraft}>
+                        {copied ? 'Copied' : 'Copy'}
+                      </button>
+                      <button className="admin-action" type="button" onClick={() => setStatus(selected.id, 'sent')}>
+                        Mark sent
+                      </button>
+                    </>
+                  )}
+
+                  {selected.status === 'sent' && (
+                    <>
+                      <button className="admin-action primary" type="button" onClick={() => setStatus(selected.id, 'replied')}>
+                        Mark replied
+                      </button>
+                      <button className="admin-action" type="button" disabled={!selected.canEscalate} onClick={() => setStatus(selected.id, 'no_reply')}>
+                        Escalate
+                      </button>
+                    </>
+                  )}
+
+                  {(selected.status === 'replied' || selected.status === 'rejected' || selected.status === 'no_reply') && (
+                    <button className="admin-action" type="button" onClick={() => setStatus(selected.id, 'pending_review')}>
+                      Return to review
+                    </button>
+                  )}
                 </div>
-              )}
-            </article>
-          )}
+              </article>
+            )}
+          </section>
         </section>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
