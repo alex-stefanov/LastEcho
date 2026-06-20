@@ -1,18 +1,20 @@
 // ---------------------------------------------------------------------------
-// LastEcho — mock language dataset (scaffold only).
+// LastEcho — language types + vitality helpers.
 //
-// This stands in for the SQLite artifact the Python build script will emit and
-// the C# API will serve. Every status here is *precomputed* per year via a
-// closed-form profile, mirroring the real plan: scrubbing the timeline only
-// re-reads values, it never calls a model. Replace this file with the real API
-// once the pipeline exists — the GlobePoint / Vitality contract stays the same.
+// The live data now comes from the FastAPI server (see data/api.ts); the app
+// fetches it at startup. This file keeps the shared LangRecord / Vitality
+// contract and the pure helpers (statusAt / colorFor / radiusFor) plus the year
+// constants, and still exports a generated LANGUAGES array usable as an offline
+// fallback or for isolated component work. Status is *precomputed* per year via
+// a closed-form profile, mirroring the real plan: scrubbing the timeline only
+// re-reads values, it never calls a model.
 // ---------------------------------------------------------------------------
 
 export type Vitality = 'alive' | 'atRisk' | 'lost';
 
 export const MIN_YEAR = 1990;
 export const MAX_YEAR = 2045;
-export const TODAY = 2026;
+export const TODAY = 2024;
 
 export interface LangRecord {
   id: number;
