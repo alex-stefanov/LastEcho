@@ -16,11 +16,20 @@ precisely because this is an automatic match, not a human-checked one.
 
 from __future__ import annotations
 
+import logging
 import math
+import re
 from typing import Any
 
 import httpx
 import reverse_geocoder as rg
+
+logger = logging.getLogger("lastecho")
+
+# ISO 3166-1 alpha-2. Validated before it is interpolated into the ROR filter
+# string — defense-in-depth against query injection if the source ever changes
+# from the trusted reverse_geocoder `cc` field to something user-influenced.
+_CC_RE = re.compile(r"^[A-Za-z]{2}$")
 
 ROR_URL = "https://api.ror.org/v2/organizations"
 QUERY_TERMS = ["indigenous languages", "endangered languages", "linguistics"]
@@ -87,6 +96,10 @@ def _score(org: dict[str, Any]) -> int:
 def lookup_country_institutions(country_code: str, limit: int = 2) -> list[dict[str, Any]]:
     """Query ROR live for `country_code`. Network errors -> empty (caller falls
     back to the Continental tier rather than failing the whole sweep)."""
+    if not _CC_RE.match(country_code):
+        logger.warning("ignoring malformed country code for ROR lookup: %r", country_code)
+        return []
+
     seen: dict[str, dict[str, Any]] = {}
     try:
         with httpx.Client(timeout=8.0) as client:
@@ -99,7 +112,8 @@ def lookup_country_institutions(country_code: str, limit: int = 2) -> list[dict[
                     rid = org.get("id", org.get("name"))
                     if rid not in seen:
                         seen[rid] = org
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("ROR lookup for %s failed, falling back: %s", country_code, exc)
         return []
 
     ranked = sorted(seen.values(), key=_score, reverse=True)[:limit]

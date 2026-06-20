@@ -7,6 +7,7 @@ silently no-op — an admin must never believe an email went out when it didn't.
 
 from __future__ import annotations
 
+import re
 import smtplib
 import ssl
 import time
@@ -20,10 +21,20 @@ _RETRYABLE = (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, TimeoutE
 _MAX_ATTEMPTS = 3
 _BACKOFF_SECONDS = 2.0
 
+# A single, well-formed address — no commas/semicolons (multiple recipients) and
+# no whitespace. Combined with the control-character check below this prevents
+# SMTP header injection (e.g. "a@x.com\nBcc: victim@y.com") via institution data.
+_ADDRESS_RE = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
+
 
 def is_configured(settings: Settings) -> bool:
     """True once enough is set to actually deliver: a host and a From address."""
     return bool(settings.smtp_host and settings.smtp_from)
+
+
+def _require_valid_address(to: str) -> None:
+    if any(c in to for c in "\r\n") or not _ADDRESS_RE.match(to):
+        raise ValueError(f"Invalid recipient address: {to!r}")
 
 
 def send(*, to: str, subject: str, body: str, settings: Settings) -> None:
@@ -33,10 +44,15 @@ def send(*, to: str, subject: str, body: str, settings: Settings) -> None:
     if not is_configured(settings):
         raise RuntimeError("SMTP is not configured")
 
+    _require_valid_address(to)
+    # Strip CR/LF from the subject too — a model-generated subject must never be
+    # able to inject extra headers.
+    safe_subject = subject.replace("\r", " ").replace("\n", " ")
+
     msg = EmailMessage()
     msg["From"] = settings.smtp_from
     msg["To"] = to
-    msg["Subject"] = subject
+    msg["Subject"] = safe_subject
     msg.set_content(body)
 
     for attempt in range(1, _MAX_ATTEMPTS + 1):

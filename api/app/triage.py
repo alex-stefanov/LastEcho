@@ -87,11 +87,22 @@ def escalate(
         conn, institutions_file, language,
         ror_cache_ttl_days=ror_cache_ttl_days, organizations=organizations,
     )
-    tiers = [rung.tier for rung in ladder]
-    try:
-        next_index = tiers.index(current["tier"]) + 1
-    except ValueError:
-        return None
+    # Find where the draft we're escalating from sits in the (possibly
+    # re-derived) ladder. Prefer the institution actually contacted — the ladder
+    # composition can shift between sends (e.g. the national ROR cache expiring),
+    # so matching by stored institution_id is more reliable than by tier name.
+    # Fall back to tier only if that institution is no longer in the ladder.
+    inst_id = current["institution_id"]
+    current_index = next(
+        (i for i, rung in enumerate(ladder) if rung.institution.id == inst_id), None
+    )
+    if current_index is None:
+        tiers = [rung.tier for rung in ladder]
+        try:
+            current_index = tiers.index(current["tier"])
+        except ValueError:
+            return None
+    next_index = current_index + 1
     if next_index >= len(ladder):
         return None  # already at the last rung (global) — ladder exhausted
 

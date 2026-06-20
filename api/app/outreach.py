@@ -9,9 +9,12 @@ unset, so the sweep still runs end-to-end offline.
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from .schemas import Institution, Language
+
+logger = logging.getLogger("lastecho")
 
 SYSTEM_PROMPT = (
     "You write concise, respectful outreach emails on behalf of LastEcho, a "
@@ -99,6 +102,13 @@ def draft(
         )
         text = next((b.text for b in response.content if b.type == "text"), "")
         parsed = _parse_json_response(text)
-        return parsed or _template_draft(language, institution, tier)
-    except Exception:
+        if parsed is None:
+            logger.warning("draft for %s: unparseable model response, using template", language.name)
+            return _template_draft(language, institution, tier)
+        return parsed
+    except Exception as exc:
+        # Any drafting failure (missing/invalid key, API/network error) must not
+        # break the sweep — fall back to the deterministic template, but log it
+        # so an operator can tell Claude isn't actually being used.
+        logger.warning("draft for %s fell back to template: %s", language.name, exc)
         return _template_draft(language, institution, tier)

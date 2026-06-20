@@ -1,12 +1,12 @@
 """Admin-only: full draft content, approval, and escalation.
 
-Not linked from the public globe app. No auth in this slice (see PLAN.md
-"Out of scope") — acceptable for a demo, called out as a known gap rather
-than hidden.
+Gated by the admin bearer token (see auth.verify_admin, wired in main.py) — not
+reachable without authenticating via POST /api/admin/login.
 """
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -19,6 +19,7 @@ from ..dependencies import get_db, get_store
 from ..schemas import DraftStatus, OutreachDraft
 
 router = APIRouter(prefix="/api/outreach-queue", tags=["admin"])
+logger = logging.getLogger("lastecho")
 
 
 def _can_escalate(row: sqlite3.Row) -> bool:
@@ -78,10 +79,9 @@ def reject(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> Outreac
 
 @router.post("/{draft_id}/mark-sent", response_model=OutreachDraft, summary="Admin records they sent it")
 def mark_sent(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> OutreachDraft:
-    row = _get_or_404(conn, draft_id)
-    if row["status"] != "approved":
+    _get_or_404(conn, draft_id)
+    if not store_db.set_status_if(conn, draft_id, "approved", "sent"):
         raise HTTPException(status_code=400, detail="Only approved drafts can be marked sent")
-    store_db.set_status(conn, draft_id, "sent")
     return _row_to_draft(_get_or_404(conn, draft_id))
 
 
@@ -105,20 +105,25 @@ def send(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> OutreachD
             status_code=503,
             detail="Email sending is not configured. Set LASTECHO_SMTP_HOST and LASTECHO_SMTP_FROM (see .env.example).",
         )
+    # Claim the draft atomically before delivering: if a concurrent request
+    # already moved it out of 'approved', we lose the race and stop here, so the
+    # same email is never sent twice.
+    if not store_db.set_status_if(conn, draft_id, "approved", "sent"):
+        raise HTTPException(status_code=409, detail="Draft is no longer awaiting send")
     try:
         mailer.send(to=recipient, subject=row["subject"], body=row["body"], settings=settings)
-    except Exception as exc:  # SMTP/connection failure — leave the draft un-sent
-        raise HTTPException(status_code=502, detail=f"Email delivery failed: {exc}")
-    store_db.set_status(conn, draft_id, "sent")
+    except Exception as exc:  # delivery failed — release the claim, leave it un-sent
+        store_db.revert_send_claim(conn, draft_id)
+        logger.error("send failed for draft %s: %s", draft_id, exc)
+        raise HTTPException(status_code=502, detail="Email delivery failed")
     return _row_to_draft(_get_or_404(conn, draft_id))
 
 
 @router.post("/{draft_id}/mark-replied", response_model=OutreachDraft, summary="Admin records a reply came in")
 def mark_replied(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> OutreachDraft:
-    row = _get_or_404(conn, draft_id)
-    if row["status"] != "sent":
+    _get_or_404(conn, draft_id)
+    if not store_db.set_status_if(conn, draft_id, "sent", "replied"):
         raise HTTPException(status_code=400, detail="Only sent drafts can be marked replied")
-    store_db.set_status(conn, draft_id, "replied")
     return _row_to_draft(_get_or_404(conn, draft_id))
 
 

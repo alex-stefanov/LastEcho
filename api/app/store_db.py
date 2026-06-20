@@ -18,6 +18,17 @@ from typing import Any
 
 ACTIVE_STATUSES = ("pending_review", "approved", "sent")
 
+# Defensive caps on free-form draft fields before they are stored and later
+# emailed. Subject stays within the RFC 5322 line limit; body/ask are generous
+# but bounded so a malformed model response can't store unbounded text.
+_MAX_SUBJECT = 990
+_MAX_BODY = 20_000
+_MAX_ASK = 2_000
+
+
+def _clip(value: str, limit: int) -> str:
+    return value if len(value) <= limit else value[:limit]
+
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -121,7 +132,8 @@ def insert_draft(
         VALUES (?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?)
         """,
         (
-            language_id, institution_id, tier, subject, body, ask, _now(),
+            language_id, institution_id, tier,
+            _clip(subject, _MAX_SUBJECT), _clip(body, _MAX_BODY), _clip(ask, _MAX_ASK), _now(),
             language_name, institution_name, institution_url, institution_contact_url, institution_email,
         ),
     )
@@ -155,6 +167,42 @@ def set_status(conn: sqlite3.Connection, draft_id: int, status: str) -> None:
         )
     else:
         conn.execute("UPDATE outreach_queue SET status = ? WHERE id = ?", (status, draft_id))
+    conn.commit()
+
+
+def set_status_if(
+    conn: sqlite3.Connection, draft_id: int, expected: str, new_status: str
+) -> bool:
+    """Atomically move a draft from `expected` to `new_status`. Returns True only
+    if a row actually changed — so two concurrent callers can't both pass a
+    read-then-write check and, e.g., send the same email twice."""
+    timestamp_field = (
+        "sent_at" if new_status == "sent"
+        else "decided_at" if new_status in ("approved", "rejected")
+        else None
+    )
+    if timestamp_field:
+        cur = conn.execute(
+            f"UPDATE outreach_queue SET status = ?, {timestamp_field} = ? "
+            f"WHERE id = ? AND status = ?",
+            (new_status, _now(), draft_id, expected),
+        )
+    else:
+        cur = conn.execute(
+            "UPDATE outreach_queue SET status = ? WHERE id = ? AND status = ?",
+            (new_status, draft_id, expected),
+        )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def revert_send_claim(conn: sqlite3.Connection, draft_id: int) -> None:
+    """Undo a 'sent' claim after delivery failed: back to approved, clear sent_at,
+    so the admin can retry and the draft is never shown as sent when it wasn't."""
+    conn.execute(
+        "UPDATE outreach_queue SET status = 'approved', sent_at = NULL WHERE id = ?",
+        (draft_id,),
+    )
     conn.commit()
 
 
