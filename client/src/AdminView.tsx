@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   approveDraft,
   escalateDraft,
@@ -45,8 +45,7 @@ const MOCK_DRAFTS: OutreachDraft[] = [
     institutionId: 'local-batsbi-center',
     tier: 'local',
     subject: 'Documentation support for Batsbi speakers',
-    body:
-      'Hello,\n\nLastEcho flagged Batsbi as a high-priority language for near-term documentation support. We are looking for a local partner who can confirm current speaker estimates, existing recordings, and whether community-led documentation work is already active.\n\nCould your team advise who the right contact would be for this language community?',
+    body: 'Hello,\n\nLastEcho flagged Batsbi as a high-priority language for near-term documentation support. We are looking for a local partner who can confirm current speaker estimates, existing recordings, and whether community-led documentation work is already active.\n\nCould your team advise who the right contact would be for this language community?',
     ask: 'Confirm contact, speaker estimate, and active documentation status.',
     status: 'pending_review',
     createdAt: '2026-06-18T08:30:00.000Z',
@@ -65,8 +64,7 @@ const MOCK_DRAFTS: OutreachDraft[] = [
     institutionId: 'continental-archive',
     tier: 'continental',
     subject: 'Partner request: Koro language preservation',
-    body:
-      'Hello,\n\nWe are preparing an outreach packet for Koro and would like to verify which organizations are already working with the community. The goal is not to duplicate effort, but to route urgent documentation support to the right people.\n\nCould you point us toward the best current contact or archive record?',
+    body: 'Hello,\n\nWe are preparing an outreach packet for Koro and would like to verify which organizations are already working with the community. The goal is not to duplicate effort, but to route urgent documentation support to the right people.\n\nCould you point us toward the best current contact or archive record?',
     ask: 'Find the right active contact or archive record before escalation.',
     status: 'approved',
     createdAt: '2026-06-17T13:12:00.000Z',
@@ -85,8 +83,7 @@ const MOCK_DRAFTS: OutreachDraft[] = [
     institutionId: 'local-oral-history',
     tier: 'local',
     subject: 'Request for current materials on N|uu',
-    body:
-      'Hello,\n\nLastEcho is tracking N|uu as a language where existing documentation and community access should be checked carefully. We would like to verify whether there are active oral-history recordings, teaching materials, or community contacts that should be prioritized.\n\nCould you share the correct contact path?',
+    body: 'Hello,\n\nLastEcho is tracking N|uu as a language where existing documentation and community access should be checked carefully. We would like to verify whether there are active oral-history recordings, teaching materials, or community contacts that should be prioritized.\n\nCould you share the correct contact path?',
     ask: 'Check whether existing materials are accessible to the community.',
     status: 'sent',
     createdAt: '2026-06-08T10:04:00.000Z',
@@ -105,8 +102,7 @@ const MOCK_DRAFTS: OutreachDraft[] = [
     institutionId: 'global-linguistics',
     tier: 'global',
     subject: 'Follow-up: urgent record check for Ainu',
-    body:
-      'Hello,\n\nWe are following up after a previous local and continental search. LastEcho needs help validating whether Ainu support should be routed to an active documentation project, a university archive, or a community-led organization.\n\nAny verified direction would help us avoid sending support to stale contacts.',
+    body: 'Hello,\n\nWe are following up after a previous local and continental search. LastEcho needs help validating whether Ainu support should be routed to an active documentation project, a university archive, or a community-led organization.\n\nAny verified direction would help us avoid sending support to stale contacts.',
     ask: 'Validate the best global route after local search stalled.',
     status: 'replied',
     createdAt: '2026-06-02T09:45:00.000Z',
@@ -125,8 +121,7 @@ const MOCK_DRAFTS: OutreachDraft[] = [
     institutionId: 'regional-institute',
     tier: 'local',
     subject: 'Draft declined: Wukchumni local contact',
-    body:
-      'This draft was declined because the proposed organization had no clear language preservation role. A better local partner should be found before sending.',
+    body: 'This draft was declined because the proposed organization had no clear language preservation role. A better local partner should be found before sending.',
     ask: 'Replace the organization before creating a new draft.',
     status: 'rejected',
     createdAt: '2026-06-15T16:30:00.000Z',
@@ -177,17 +172,14 @@ function AdminLogin({ theme, onToggleTheme, onLogin }: AdminLoginProps) {
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-
     if (!ADMIN_CONFIGURED) {
       setError('Admin seed is missing. Add VITE_ADMIN_USER and VITE_ADMIN_PASSWORD in .env.local.');
       return;
     }
-
     if (credentials.user.trim() !== ADMIN_USER || credentials.password !== ADMIN_PASSWORD) {
       setError('Wrong admin seed. Check your local .env.local values.');
       return;
     }
-
     sessionStorage.setItem(ADMIN_SESSION_KEY, `authenticated:${ADMIN_USER}`);
     onLogin();
   };
@@ -200,7 +192,6 @@ function AdminLogin({ theme, onToggleTheme, onLogin }: AdminLoginProps) {
           <h1>Signal Desk</h1>
           <p>Use your local admin seed to review outreach drafts and contact decisions.</p>
         </div>
-
         <form className="admin-login-card" onSubmit={onSubmit}>
           <div className="admin-login-head">
             <div>
@@ -209,35 +200,16 @@ function AdminLogin({ theme, onToggleTheme, onLogin }: AdminLoginProps) {
             </div>
             <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           </div>
-
           <label className="admin-login-field">
             <span>Username</span>
-            <input
-              autoComplete="username"
-              name="user"
-              placeholder="admin"
-              value={credentials.user}
-              onChange={onChange}
-            />
+            <input autoComplete="username" name="user" placeholder="admin" value={credentials.user} onChange={onChange} />
           </label>
-
           <label className="admin-login-field">
             <span>Password</span>
-            <input
-              autoComplete="current-password"
-              name="password"
-              placeholder="Seed password"
-              type="password"
-              value={credentials.password}
-              onChange={onChange}
-            />
+            <input autoComplete="current-password" name="password" placeholder="Seed password" type="password" value={credentials.password} onChange={onChange} />
           </label>
-
           {error && <p className="admin-login-error">{error}</p>}
-
-          <button className="admin-login-submit" type="submit">
-            Enter dashboard
-          </button>
+          <button className="admin-login-submit" type="submit">Enter dashboard</button>
         </form>
       </section>
     </main>
@@ -249,16 +221,10 @@ export default function AdminView() {
   const [drafts, setDrafts] = useState<OutreachDraft[]>(MOCK_DRAFTS);
   const [selectedId, setSelectedId] = useState<number>(MOCK_DRAFTS[0].id);
   const [copied, setCopied] = useState(false);
-  // `live` flips to true once the real outreach queue loads; until then (and if
-  // the API is unreachable) the console runs on MOCK_DRAFTS so the design demo
-  // still works offline. In live mode, actions hit the backend for real —
-  // including the SMTP send.
   const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [theme, setTheme] = useState<Theme>(() =>
-    localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark',
-  );
+  const [theme, setTheme] = useState<Theme>(() => localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark');
   const [authenticated, setAuthenticated] = useState(() => ADMIN_CONFIGURED && isSavedAdminSession());
 
   useEffect(() => {
@@ -266,7 +232,6 @@ export default function AdminView() {
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
-  // Load the real queue once. A failure leaves the mock demo in place.
   useEffect(() => {
     let cancelled = false;
     fetchOutreachQueue()
@@ -276,57 +241,25 @@ export default function AdminView() {
         setDrafts(rows);
         if (rows[0]) setSelectedId(rows[0].id);
       })
-      .catch(() => {
-        /* API down — keep MOCK_DRAFTS so the console still renders */
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   const activeFilter = FILTERS.find((item) => item.key === filter) ?? FILTERS[0];
-
-  const visibleDrafts = useMemo(
-    () => drafts.filter((draft) => activeFilter.statuses.includes(draft.status)),
-    [drafts, activeFilter],
-  );
-
+  const visibleDrafts = useMemo(() => drafts.filter((draft) => activeFilter.statuses.includes(draft.status)), [drafts, activeFilter]);
   const selected = drafts.find((draft) => draft.id === selectedId) ?? visibleDrafts[0] ?? null;
 
-  const stats = useMemo(
-    () => ({
-      review: drafts.filter((draft) => draft.status === 'pending_review').length,
-      ready: drafts.filter((draft) => draft.status === 'approved').length,
-      sent: drafts.filter((draft) => draft.status === 'sent' || draft.status === 'no_reply').length,
-    }),
-    [drafts],
-  );
+  const stats = useMemo(() => ({
+    review: drafts.filter((draft) => draft.status === 'pending_review').length,
+    ready: drafts.filter((draft) => draft.status === 'approved').length,
+    sent: drafts.filter((draft) => draft.status === 'sent' || draft.status === 'no_reply').length,
+  }), [drafts]);
 
-  // Offline/demo path: mutate local state only.
   const setStatusLocal = (id: number, status: DraftStatus) => {
-    setDrafts((items) =>
-      items.map((draft) =>
-        draft.id === id
-          ? {
-              ...draft,
-              status,
-              decidedAt: status === 'approved' || status === 'rejected' ? new Date().toISOString() : draft.decidedAt,
-              sentAt: status === 'sent' ? new Date().toISOString() : draft.sentAt,
-              canEscalate: status === 'sent' ? draft.canEscalate : false,
-            }
-          : draft,
-      ),
-    );
+    setDrafts((items) => items.map((draft) => draft.id === id ? { ...draft, status, decidedAt: status === 'approved' || status === 'rejected' ? new Date().toISOString() : draft.decidedAt, sentAt: status === 'sent' ? new Date().toISOString() : draft.sentAt, canEscalate: status === 'sent' ? draft.canEscalate : false } : draft));
   };
 
-  // In live mode, run the backend action then refetch the queue so the view
-  // reflects server truth — escalate, for instance, marks the current draft
-  // no_reply *and* spawns the next-rung draft, which a local patch can't model.
-  const act = async (
-    id: number,
-    localStatus: DraftStatus,
-    apiCall?: (id: number) => Promise<OutreachDraft | null>,
-  ) => {
+  const act = async (id: number, localStatus: DraftStatus, apiCall?: (id: number) => Promise<OutreachDraft | null>) => {
     setError(null);
     if (!live || !apiCall) {
       setStatusLocal(id, localStatus);
@@ -359,13 +292,7 @@ export default function AdminView() {
   };
 
   if (!authenticated) {
-    return (
-      <AdminLogin
-        theme={theme}
-        onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
-        onLogin={() => setAuthenticated(true)}
-      />
-    );
+    return <AdminLogin theme={theme} onToggleTheme={() => setTheme((c) => c === 'dark' ? 'light' : 'dark')} onLogin={() => setAuthenticated(true)} />;
   }
 
   return (
@@ -378,63 +305,29 @@ export default function AdminView() {
           </div>
           <div className="admin-header-actions">
             <span className="admin-session-label">{ADMIN_USER}</span>
-            <ThemeToggle theme={theme} onToggle={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))} />
-            <button className="admin-logout" type="button" onClick={logout}>
-              Log out
-            </button>
+            <ThemeToggle theme={theme} onToggle={() => setTheme((c) => c === 'dark' ? 'light' : 'dark')} />
+            <button className="admin-logout" type="button" onClick={logout}>Log out</button>
           </div>
         </header>
 
         <section className="admin-metrics" aria-label="Admin overview">
-          <article className="admin-metric-card">
-            <span>Review</span>
-            <strong>{stats.review}</strong>
-          </article>
-          <article className="admin-metric-card">
-            <span>Ready</span>
-            <strong>{stats.ready}</strong>
-          </article>
-          <article className="admin-metric-card">
-            <span>Sent</span>
-            <strong>{stats.sent}</strong>
-          </article>
+          <article className="admin-metric-card"><span>Review</span><strong>{stats.review}</strong></article>
+          <article className="admin-metric-card"><span>Ready</span><strong>{stats.ready}</strong></article>
+          <article className="admin-metric-card"><span>Sent</span><strong>{stats.sent}</strong></article>
         </section>
 
         <nav className="admin-tabs" aria-label="Outreach filters">
           {FILTERS.map((item) => (
-            <button
-              key={item.key}
-              className={`admin-tab ${filter === item.key ? 'active' : ''}`}
-              type="button"
-              onClick={() => {
-                setFilter(item.key);
-                setSelectedId((current) => {
-                  const nextVisible = drafts.filter((draft) => item.statuses.includes(draft.status));
-                  return nextVisible.some((draft) => draft.id === current) ? current : nextVisible[0]?.id ?? current;
-                });
-              }}
-            >
-              {item.label}
-            </button>
+            <button key={item.key} className={`admin-tab ${filter === item.key ? 'active' : ''}`} type="button" onClick={() => { setFilter(item.key); setSelectedId((current) => { const nextVisible = drafts.filter((d) => item.statuses.includes(d.status)); return nextVisible.some((d) => d.id === current) ? current : nextVisible[0]?.id ?? current; }); }}>{item.label}</button>
           ))}
         </nav>
 
         <section className="admin-workspace">
           <aside className="admin-queue" aria-label="Outreach queue">
-            <div className="admin-section-head">
-              <span>Queue</span>
-              <strong>{visibleDrafts.length}</strong>
-            </div>
-
+            <div className="admin-section-head"><span>Queue</span><strong>{visibleDrafts.length}</strong></div>
             {visibleDrafts.length === 0 && <div className="admin-empty">No drafts here.</div>}
-
             {visibleDrafts.map((draft) => (
-              <button
-                key={draft.id}
-                type="button"
-                className={`admin-queue-card ${selected?.id === draft.id ? 'active' : ''}`}
-                onClick={() => setSelectedId(draft.id)}
-              >
+              <button key={draft.id} type="button" className={`admin-queue-card ${selected?.id === draft.id ? 'active' : ''}`} onClick={() => setSelectedId(draft.id)}>
                 <span className={`admin-status-line tone-${toneFor(draft.status)}`} />
                 <span className="admin-queue-main">
                   <span className="admin-queue-title">{draft.languageName}</span>
@@ -446,100 +339,42 @@ export default function AdminView() {
 
           <section className="admin-detail" aria-label="Selected outreach draft">
             {!selected && <div className="admin-empty large">Select a draft to preview it.</div>}
-
             {selected && (
               <article className="admin-panel-sheet">
-                <div className="admin-detail-head">
-                  <h2>{selected.languageName}</h2>
-                </div>
-
+                <div className="admin-detail-head"><h2>{selected.languageName}</h2></div>
                 <div className="admin-field-grid">
-                  <div className="admin-field wide">
-                    <span>Institution</span>
-                    <a href={selected.institutionUrl} target="_blank" rel="noreferrer">
-                      {selected.institutionName}
-                    </a>
-                  </div>
-                  <div className="admin-field">
-                    <span>Contact</span>
-                    <strong>{selected.institutionEmail ?? 'Contact page'}</strong>
-                  </div>
-                  <div className="admin-field">
-                    <span>Status</span>
-                    <strong>{STATUS_LABEL[selected.status]}</strong>
-                  </div>
-                  <div className="admin-field">
-                    <span>Created</span>
-                    <strong>{formatDate(selected.createdAt)}</strong>
-                  </div>
+                  <div className="admin-field wide"><span>Institution</span><a href={selected.institutionUrl} target="_blank" rel="noreferrer">{selected.institutionName}</a></div>
+                  <div className="admin-field"><span>Contact</span><strong>{selected.institutionEmail ?? 'Contact page'}</strong></div>
+                  <div className="admin-field"><span>Status</span><strong>{STATUS_LABEL[selected.status]}</strong></div>
+                  <div className="admin-field"><span>Created</span><strong>{formatDate(selected.createdAt)}</strong></div>
                 </div>
-
-                <div className="admin-message-card">
-                  <span>Subject</span>
-                  <h3>{selected.subject}</h3>
-                  <pre>{selected.body}</pre>
-                </div>
-
-                <div className="admin-check-row">
-                  <span>Admin check</span>
-                  <p>{selected.ask}</p>
-                </div>
-
+                <div className="admin-message-card"><span>Subject</span><h3>{selected.subject}</h3><pre>{selected.body}</pre></div>
+                <div className="admin-check-row"><span>Admin check</span><p>{selected.ask}</p></div>
                 <div className="admin-actions-row">
                   {selected.status === 'pending_review' && (
                     <>
-                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'approved', approveDraft)}>
-                        Approve
-                      </button>
-                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, 'rejected', rejectDraft)}>
-                        Reject
-                      </button>
+                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'approved', approveDraft)}>Approve</button>
+                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, 'rejected', rejectDraft)}>Reject</button>
                     </>
                   )}
-
                   {selected.status === 'approved' && (
                     <>
-                      {selected.institutionEmail ? (
-                        <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', sendDraft)}>
-                          {busy ? 'Sending…' : 'Send email'}
-                        </button>
-                      ) : (
-                        <a className="admin-action primary" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">
-                          Contact page
-                        </a>
-                      )}
-                      {selected.institutionEmail && (
-                        <a className="admin-action" href={mailtoFor(selected)}>
-                          Open email
-                        </a>
-                      )}
-                      <button className="admin-action" type="button" onClick={copyDraft}>
-                        {copied ? 'Copied' : 'Copy'}
-                      </button>
-                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', markSent)}>
-                        Mark sent
-                      </button>
+                      {selected.institutionEmail ? (<button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>) : (<a className="admin-action primary" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">Contact page</a>)}
+                      {selected.institutionEmail && <a className="admin-action" href={mailtoFor(selected)}>Open email</a>}
+                      <button className="admin-action" type="button" onClick={copyDraft}>{copied ? 'Copied' : 'Copy'}</button>
+                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, 'sent', markSent)}>Mark sent</button>
                     </>
                   )}
-
                   {selected.status === 'sent' && (
                     <>
-                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'replied', markReplied)}>
-                        Mark replied
-                      </button>
-                      <button className="admin-action" type="button" disabled={busy || !selected.canEscalate} onClick={() => act(selected.id, 'no_reply', escalateDraft)}>
-                        Escalate
-                      </button>
+                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, 'replied', markReplied)}>Mark replied</button>
+                      <button className="admin-action" type="button" disabled={busy || !selected.canEscalate} onClick={() => act(selected.id, 'no_reply', escalateDraft)}>Escalate</button>
                     </>
                   )}
-
                   {(selected.status === 'replied' || selected.status === 'rejected' || selected.status === 'no_reply') && (
-                    <button className="admin-action" type="button" onClick={() => setStatusLocal(selected.id, 'pending_review')}>
-                      Return to review
-                    </button>
+                    <button className="admin-action" type="button" onClick={() => setStatusLocal(selected.id, 'pending_review')}>Return to review</button>
                   )}
                 </div>
-
                 {error && <p className="admin-error" role="alert">{error}</p>}
               </article>
             )}
