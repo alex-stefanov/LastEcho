@@ -1,11 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { LANGUAGES, statusAt, type LangRecord, type Vitality } from '../data/mockLanguages';
 import { FAMILY_BY_NAME, MACRO_CATEGORIES, ISOLATE_FAMILY } from '../data/families';
 
 interface Props {
   year: number;
+  selected: number | null;
   onSelect: (id: number) => void;
 }
+
+const MIN_Z = 1;
+const MAX_Z = 6;
 
 // --- viewBox & root of the tree -------------------------------------------
 const VW = 1480;
@@ -282,16 +286,85 @@ function dominant(c: Counts): Vitality {
   return c.atRisk >= c.alive ? 'atRisk' : 'alive';
 }
 
-export default function TreeGraph({ year, onSelect }: Props) {
+export default function TreeGraph({ year, selected, onSelect }: Props) {
   const forest = useMemo(buildForest, []);
   const [sel, setSel] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
+
+  // pinch-free zoom + pan over the canvas.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [tf, setTf] = useState({ z: 1, x: 0, y: 0 });
+  const pan = useRef<{ x: number; y: number; px: number; py: number; moved: boolean } | null>(null);
+
+  // wheel zoom centered on the cursor (native, non-passive so we can preventDefault)
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      setTf((t) => {
+        const nz = Math.min(MAX_Z, Math.max(MIN_Z, t.z * Math.exp(-e.deltaY * 0.0015)));
+        if (nz === MIN_Z) return { z: 1, x: 0, y: 0 };
+        const k = nz / t.z;
+        return { z: nz, x: cx - k * (cx - t.x), y: cy - k * (cy - t.y) };
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    pan.current = { x: tf.x, y: tf.y, px: e.clientX, py: e.clientY, moved: false };
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const p = pan.current;
+    if (!p) return;
+    const dx = e.clientX - p.px;
+    const dy = e.clientY - p.py;
+    if (!p.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+    if (!p.moved) {
+      p.moved = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    setTf((t) => (t.z <= 1 ? t : { ...t, x: p.x + dx, y: p.y + dy }));
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    const p = pan.current;
+    pan.current = null;
+    if (p?.moved) e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
+
+  const zoomBy = (factor: number) => {
+    const el = stageRef.current;
+    const cx = el ? el.clientWidth / 2 : 0;
+    const cy = el ? el.clientHeight / 2 : 0;
+    setTf((t) => {
+      const nz = Math.min(MAX_Z, Math.max(MIN_Z, t.z * factor));
+      if (nz === MIN_Z) return { z: 1, x: 0, y: 0 };
+      const k = nz / t.z;
+      return { z: nz, x: cx - k * (cx - t.x), y: cy - k * (cy - t.y) };
+    });
+  };
 
   const counts = useMemo(() => {
     const c: Counts = { alive: 0, atRisk: 0, lost: 0 };
     for (const l of LANGUAGES) c[statusAt(l, year)]++;
     return c;
   }, [year]);
+
+  // Languages whose last voice has fallen silent by this year — most recently
+  // lost first, so scrubbing forward reads like a roll call of extinction.
+  const fallen = useMemo(
+    () =>
+      LANGUAGES.filter((l) => statusAt(l, year) === 'lost').sort(
+        (a, b) => (b.lostYear ?? 0) - (a.lostYear ?? 0),
+      ),
+    [year],
+  );
 
   const selData = sel ? forest.famLangs.get(sel) ?? null : null;
   const selCounts = useMemo(() => {
@@ -303,7 +376,15 @@ export default function TreeGraph({ year, onSelect }: Props) {
 
   return (
     <div className="tree-page">
-      <div className="ltree-stage">
+      <div className="ltree-stage" ref={stageRef}>
+      <div
+        className={`ltree-zoom${tf.z > 1 ? ' pannable' : ''}`}
+        style={{ transform: `translate(${tf.x}px, ${tf.y}px) scale(${tf.z})` }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
       <svg className="ltree" viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="xMidYMax meet">
         <defs>
           <radialGradient id="halo" cx="50%" cy="34%" r="48%">
@@ -428,6 +509,14 @@ export default function TreeGraph({ year, onSelect }: Props) {
         </g>
       </svg>
       </div>
+        <div className="tree-zoom-ctrl">
+          <button onClick={() => zoomBy(1.4)} aria-label="Zoom in">+</button>
+          <button onClick={() => zoomBy(1 / 1.4)} aria-label="Zoom out">−</button>
+          <button className="tz-reset" onClick={() => setTf({ z: 1, x: 0, y: 0 })} aria-label="Reset zoom">
+            ⤢
+          </button>
+        </div>
+      </div>
 
       <div className="ltree-cap panel">
         <p className="lc-above">
@@ -454,6 +543,32 @@ export default function TreeGraph({ year, onSelect }: Props) {
           ))}
         </div>
       </div>
+
+      {selected === null && (
+      <aside className="fallen panel">
+        <div className="fallen-head">
+          <span className="fallen-title">Fallen silent</span>
+          <span className="fallen-count num">{fallen.length}</span>
+        </div>
+        {fallen.length === 0 ? (
+          <p className="fallen-empty">None yet — drag the years forward to watch them go.</p>
+        ) : (
+          <ul className="fallen-list">
+            {fallen.map((l) => (
+              <li key={l.id}>
+                <button className="fallen-item" onClick={() => onSelect(l.id)}>
+                  <span className="fallen-name">{l.name}</span>
+                  <span className="fallen-meta">
+                    <span className="fallen-fam">{l.family}</span>
+                    <span className="fallen-year num">{l.lostYear}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </aside>
+      )}
 
       {sel && selData && selCounts && (
         <aside className="fam-drawer" style={{ ['--accent' as string]: VA[dominant(selCounts)] } as React.CSSProperties}>

@@ -19,6 +19,8 @@ const RECORDED_YEARS: number[] = RECORDED.map((m) => m.year);
 // Forecast horizon — the right-hand lane the ML simulation fills in.
 const HORIZON = 2045;
 const DMIN = RECORDED_YEARS[0];
+// ML forecast begins after this year: on/before it the run is green, after it orange.
+const SPLIT = 2025;
 
 // Piecewise scale: the recorded past gets a fixed slice of the track so its
 // three stops stay legible; the forecast lane takes the rest.
@@ -28,6 +30,7 @@ const pct = (y: number) =>
   y <= TODAY
     ? ((y - DMIN) / (TODAY - DMIN)) * RECORDED_FRAC
     : RECORDED_FRAC + ((y - TODAY) / (HORIZON - TODAY)) * (100 - RECORDED_FRAC);
+const SPLIT_PCT = pct(SPLIT);
 const yearFromPct = (p: number) =>
   p <= RECORDED_FRAC
     ? DMIN + (p / RECORDED_FRAC) * (TODAY - DMIN)
@@ -50,7 +53,7 @@ export default function Timeline({ year, setYear, playing, setPlaying }: Props) 
   // ML projection can be scrubbed.
   const [simRan, setSimRan] = useState(false);
 
-  const isFuture = year > TODAY;
+  const isFuture = year > SPLIT;
 
   useEffect(() => {
     if (year > TODAY && !simRan) setSimRan(true);
@@ -138,7 +141,7 @@ export default function Timeline({ year, setYear, playing, setPlaying }: Props) 
   };
 
   const fillPct = pct(year);
-  const coolW = Math.min(fillPct, TODAY_PCT);
+  const coolW = Math.min(fillPct, SPLIT_PCT);
   const recorded = RECORDED.find((m) => m.year === year);
   const phase = isFuture ? (playing ? 'Predicting' : 'Projected') : recorded?.label ?? '';
   const runLabel = playing
@@ -175,7 +178,7 @@ export default function Timeline({ year, setYear, playing, setPlaying }: Props) 
           <div className="track-rail" />
 
           {/* reserved forecast lane — filled by the ML simulation */}
-          <div className={`forecast${simRan ? ' live' : ' locked'}`} style={{ left: `${TODAY_PCT}%` }}>
+          <div className={`forecast${simRan ? ' live' : ' locked'}`} style={{ left: `${SPLIT_PCT}%` }}>
             <span className="forecast-label">ML Forecast</span>
           </div>
 
@@ -183,36 +186,15 @@ export default function Timeline({ year, setYear, playing, setPlaying }: Props) 
           {isFuture && (
             <div
               className="track-fill future"
-              style={{ left: `${TODAY_PCT}%`, width: `${fillPct - TODAY_PCT}%` }}
+              style={{ left: `${SPLIT_PCT}%`, width: `${fillPct - SPLIT_PCT}%` }}
             />
           )}
 
-          <div className="today-mark" style={{ left: `${TODAY_PCT}%` }} />
-
-          {RECORDED.map((m) => {
-            const isActive = year === m.year;
-            const isNow = m.year === TODAY;
-            return (
-              <button
-                key={m.year}
-                type="button"
-                className={`milestone${isActive ? ' active' : ''}${isNow ? ' now' : ''}`}
-                style={{ left: `${pct(m.year)}%` }}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => {
-                  setPlaying(false);
-                  setYear(m.year);
-                }}
-                aria-label={`${m.label} — ${m.year}`}
-              >
-                <span className="milestone-dot" />
-                <span className="milestone-tip">
-                  <em>{m.label}</em>
-                  {m.year}
-                </span>
-              </button>
-            );
-          })}
+          {/* 2025 — where the ML forecast takes over from the recorded record */}
+          <div className="forecast-start" style={{ left: `${SPLIT_PCT}%` }}>
+            <span className="fs-tick" />
+            <span className="fs-year">{SPLIT}</span>
+          </div>
 
           <div className={`thumb${isFuture ? ' future' : ''}${dragging ? ' grabbing' : ''}`} style={{ left: `${fillPct}%` }}>
             <span className="thumb-core" />

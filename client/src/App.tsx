@@ -119,7 +119,7 @@ export default function App() {
         </>
       )}
 
-      {view === 'tree' && <TreeGraph year={year} onSelect={(id) => setSelected(id)} />}
+      {view === 'tree' && <TreeGraph year={year} selected={selected} onSelect={(id) => setSelected(id)} />}
 
       <Wordmark />
       <Nav view={view} onChange={setView} />
