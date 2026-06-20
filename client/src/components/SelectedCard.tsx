@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { statusAt, colorFor, type LangRecord } from '../data/mockLanguages';
+import { statusAt, colorFor, type LangRecord, type Vitality } from '../data/mockLanguages';
 import { fetchInstitutions, type Institution, type OutreachStatusSummary } from '../data/api';
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
   onClose: () => void;
 }
 
-const LABEL: Record<string, string> = { alive: 'Alive', atRisk: 'At risk', lost: 'Lost' };
+const LANG_LABEL: Record<Vitality, string> = { alive: 'Alive', atRisk: 'At risk', lost: 'Lost' };
 
 const TIER_LABEL: Record<Institution['scope'], string> = {
   regional: 'Regional',
@@ -59,7 +59,7 @@ export default function SelectedCard({ lang, year, outreach, onClose }: Props) {
 
       <span className="status-pill">
         <span className="dot" style={{ background: colorFor(status) }} />
-        {LABEL[status]} · {year}
+        {LANG_LABEL[status]} · {year}
       </span>
 
       <dl>

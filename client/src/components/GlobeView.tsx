@@ -131,7 +131,7 @@ export default function GlobeView({
     if (g) g.controls().autoRotate = autoRotate;
   }, [autoRotate]);
 
-  // Re-color / show-hide markers per year + filter — no DOM rebuild.
+  // Re-color / show-hide markers per year + vitality filter — no DOM rebuild.
   useEffect(() => {
     for (const l of languages) {
       const el = els.current.get(l.id);
@@ -155,9 +155,9 @@ export default function GlobeView({
     }
   }, [languages, outreachStatus]);
 
-  const buildElement = useCallback((d: any) => {
+  const buildElement = useCallback((d: { id: number; name: string; lat: number; lng: number }) => {
     const wrap = document.createElement('div');
-    wrap.className = 'lang-marker';
+    wrap.className = 'lang-marker lang';
     wrap.innerHTML = '<div class="lm-scale"><span class="lm-dot"></span></div><span class="lm-label"></span>';
     (wrap.querySelector('.lm-label') as HTMLElement).textContent = d.name;
     const dot = wrap.querySelector('.lm-dot') as HTMLElement;
@@ -198,7 +198,7 @@ export default function GlobeView({
       htmlLat={htmlLat}
       htmlLng={htmlLng}
       htmlAltitude={0.012}
-      htmlElement={buildElement}
+      htmlElement={buildElement as any}
       htmlElementVisibilityModifier={visibilityModifier}
     />
   );

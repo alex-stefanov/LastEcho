@@ -14,7 +14,7 @@ const RECORDED = [
   { year: 2020, label: 'Recent' },
   { year: TODAY, label: 'Today' }, // 2024
 ] as const;
-const RECORDED_YEARS = RECORDED.map((m) => m.year);
+const RECORDED_YEARS: number[] = RECORDED.map((m) => m.year);
 
 // Forecast horizon — the right-hand lane the ML simulation fills in.
 const HORIZON = 2045;
