@@ -11,7 +11,7 @@ interface Props {
   ready: boolean;
 }
 
-const TODAY = TL_TODAY; // 2024 — last observed year
+const TODAY = TL_TODAY; // 2026 — last observed year
 
 // Full scrubbable range — every year in [DMIN, DMAX] is freely selectable.
 const DMIN = TL_MIN_YEAR; // 2000
