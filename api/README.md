@@ -66,12 +66,25 @@ pytest
 
 | Variable                      | Default                                       | Purpose                                                                                    |
 | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `LASTECHO_CORS_ORIGINS`       | `*`                                           | Comma-separated allowed CORS origins                                                       |
+| `LASTECHO_CORS_ORIGINS`       | `localhost:5173,localhost:4173`               | Comma-separated allowed CORS origins (never `*`; set to the deployed frontend in prod)     |
 | `LASTECHO_DATA_PATH`          | `api/data/...json`                            | Override the dataset location                                                              |
 | `LASTECHO_ORGANIZATIONS_PATH` | `client/src/data/language_organizations.json` | Emailable orgs matched into the local rung of the ladder                                   |
+| `LASTECHO_ADMIN_USER`         | `admin`                                       | Admin username for `POST /api/admin/login`                                                 |
+| `LASTECHO_ADMIN_PASSWORD`     | unset                                         | Admin password. **Unset → admin/triage endpoints fail closed (503)**                       |
+| `LASTECHO_ADMIN_TOKEN`        | random per process                            | Stable bearer token (so admin sessions survive restarts); otherwise regenerated each boot  |
+| `LASTECHO_RATE_LIMIT_PER_MIN` | `120`                                         | Per-IP request cap (sliding 60s window); `0` disables                                      |
+| `LASTECHO_RUN_SWEEP_ON_STARTUP` | `false`                                     | Run the triage sweep once at startup (backgrounded). Off by default — use the endpoint     |
 | `LASTECHO_SMTP_*`             | unset / `587` / `true`                        | `HOST/PORT/USER/PASSWORD/FROM/USE_TLS` for real sending. Without host+from, send returns 503 |
 
 See `.env.example`.
+
+## Admin authentication
+
+The admin (outreach-queue) and triage endpoints are gated by a bearer token.
+Set `LASTECHO_ADMIN_PASSWORD`, then `POST /api/admin/login` with `{user, password}`
+to receive a token, which the client sends as the `X-Admin-Token` header on every
+admin/triage call. With no password set, those endpoints (and login) return 503 —
+there is no client-side-only gate.
 
 ## Sending an outreach email
 
