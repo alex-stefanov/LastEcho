@@ -10,6 +10,7 @@ import {
   markSent,
   rejectDraft,
   sendDraft,
+  updateDraft,
   type DraftStatus,
   type OutreachDraft,
   type OutreachTier,
@@ -146,6 +147,8 @@ export default function AdminView() {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editFields, setEditFields] = useState({ subject: '', body: '', institutionEmail: '' });
   const [theme, setTheme] = useState<Theme>(() => localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark');
   const [authenticated, setAuthenticated] = useState(() => hasAdminToken());
 
@@ -184,6 +187,37 @@ export default function AdminView() {
   );
 
   const selected = drafts.find((draft) => draft.id === selectedId) ?? visibleDrafts[0] ?? null;
+  const canEdit = selected?.status === 'pending_review' || selected?.status === 'approved';
+
+  useEffect(() => {
+    setEditing(false);
+  }, [selected?.id]);
+
+  const startEdit = () => {
+    if (!selected) return;
+    setEditFields({
+      subject: selected.subject,
+      body: selected.body,
+      institutionEmail: selected.institutionEmail ?? '',
+    });
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    if (!selected) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await updateDraft(selected.id, editFields);
+      const rows = await fetchOutreachQueue();
+      setDrafts(rows);
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save changes');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const stats = useMemo(() => ({
     review: drafts.filter((draft) => draft.status === 'pending_review').length,
@@ -308,29 +342,69 @@ export default function AdminView() {
               <article className="admin-panel-sheet">
                 <div className="admin-detail-head"><h2>{selected.languageName}</h2></div>
                 <div className="admin-field-grid">
-                  <div className="admin-field wide"><span>Institution</span><a href={selected.institutionUrl} target="_blank" rel="noreferrer">{selected.institutionName}</a></div>
-                  <div className="admin-field"><span>Contact</span><strong>{selected.institutionEmail ?? 'Contact page'}</strong></div>
+                  <div className="admin-field wide">
+                    <span>Institution</span><a href={selected.institutionUrl} target="_blank" rel="noreferrer">{selected.institutionName}</a>
+                  </div>
+                  <div className="admin-field">
+                    <span>Contact</span>
+                    {editing
+                      ? <input
+                          type="email"
+                          value={editFields.institutionEmail}
+                          placeholder="recipient@example.org"
+                          onChange={(e) => setEditFields((f) => ({ ...f, institutionEmail: e.target.value }))}
+                        />
+                      : <strong>{selected.institutionEmail ?? 'Contact page'}</strong>
+                    }
+                  </div>
                   <div className="admin-field"><span>Status</span><strong>{STATUS_LABEL[selected.status]}</strong></div>
                   <div className="admin-field"><span>Created</span><strong>{formatDate(selected.createdAt)}</strong></div>
                 </div>
-                <div className="admin-message-card"><span>Subject</span><h3>{selected.subject}</h3><pre>{selected.body}</pre></div>
+                <div className="admin-message-card">
+                  <span>Subject</span>
+                  {editing
+                    ? <input
+                        value={editFields.subject}
+                        onChange={(e) => setEditFields((f) => ({ ...f, subject: e.target.value }))}
+                      />
+                    : <h3>{selected.subject}</h3>
+                  }
+                  {editing
+                    ? <textarea
+                        value={editFields.body}
+                        rows={10}
+                        onChange={(e) => setEditFields((f) => ({ ...f, body: e.target.value }))}
+                      />
+                    : <pre>{selected.body}</pre>
+                  }
+                </div>
                 <div className="admin-check-row"><span>Admin check</span><p>{selected.ask}</p></div>
                 <div className="admin-actions-row">
-                  {selected.status === 'pending_review' && (
+                  {editing ? (
                     <>
-                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, approveDraft)}>Approve</button>
-                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, rejectDraft)}>Reject</button>
+                      <button className="admin-action primary" type="button" disabled={busy} onClick={saveEdit}>{busy ? 'Saving…' : 'Save changes'}</button>
+                      <button className="admin-action" type="button" disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
                     </>
-                  )}
-                  {selected.status === 'approved' && (
+                  ) : (
                     <>
-                      {selected.institutionEmail
-                        ? <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>
-                        : <a className="admin-action primary" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">Contact page</a>
-                      }
-                      {selected.institutionEmail && <a className="admin-action" href={mailtoFor(selected)}>Open email</a>}
-                      <button className="admin-action" type="button" onClick={copyDraft}>{copied ? 'Copied' : 'Copy'}</button>
-                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, markSent)}>Mark sent</button>
+                      {canEdit && <button className="admin-action" type="button" disabled={busy} onClick={startEdit}>Edit</button>}
+                      {selected.status === 'pending_review' && (
+                        <>
+                          <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, approveDraft)}>Approve</button>
+                          <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, rejectDraft)}>Reject</button>
+                        </>
+                      )}
+                      {selected.status === 'approved' && (
+                        <>
+                          {selected.institutionEmail
+                            ? <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>
+                            : <a className="admin-action primary" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">Contact page</a>
+                          }
+                          {selected.institutionEmail && <a className="admin-action" href={mailtoFor(selected)}>Open email</a>}
+                          <button className="admin-action" type="button" onClick={copyDraft}>{copied ? 'Copied' : 'Copy'}</button>
+                          <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, markSent)}>Mark sent</button>
+                        </>
+                      )}
                     </>
                   )}
                   {selected.status === 'sent' && (

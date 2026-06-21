@@ -94,6 +94,12 @@ class OutreachDraft(BaseModel):
     institutionEmail: Optional[str] = None
 
 
+class DraftUpdate(BaseModel):
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    institutionEmail: Optional[str] = None
+
+
 class OutreachStatusSummary(BaseModel):
     hasPending: bool
     hasApproved: bool

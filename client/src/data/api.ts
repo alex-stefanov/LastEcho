@@ -171,6 +171,25 @@ export async function sendDraft(id: number): Promise<OutreachDraft> {
   return res.json();
 }
 
+// Edit a draft's subject/body/recipient before it's approved or sent. Only
+// pending/approved drafts can be edited — the server rejects edits to drafts
+// that already went out.
+export async function updateDraft(
+  id: number,
+  patch: { subject?: string; body?: string; institutionEmail?: string },
+): Promise<OutreachDraft> {
+  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `API ${res.status}: failed to update draft`);
+  }
+  return res.json();
+}
+
 export async function markReplied(id: number): Promise<OutreachDraft> {
   const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/mark-replied`, { method: 'POST', headers: adminHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: failed to mark draft replied`);

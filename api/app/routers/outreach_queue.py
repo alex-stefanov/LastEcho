@@ -16,7 +16,7 @@ from .. import mailer, store_db, triage
 from ..config import settings
 from ..data import DataStore
 from ..dependencies import get_db, get_store
-from ..schemas import DraftStatus, OutreachDraft
+from ..schemas import DraftStatus, DraftUpdate, OutreachDraft
 
 router = APIRouter(prefix="/api/outreach-queue", tags=["admin"])
 logger = logging.getLogger("lastecho")
@@ -61,6 +61,28 @@ def _get_or_404(conn: sqlite3.Connection, draft_id: int) -> sqlite3.Row:
     if row is None:
         raise HTTPException(status_code=404, detail="Draft not found")
     return row
+
+
+@router.patch("/{draft_id}", response_model=OutreachDraft, summary="Edit a draft's subject/body/recipient (admin)")
+def update_draft(
+    draft_id: int, patch: DraftUpdate, conn: sqlite3.Connection = Depends(get_db)
+) -> OutreachDraft:
+    """Only drafts still awaiting a decision can be edited — once sent, the
+    email already went out and the record should reflect what was actually
+    sent, not be rewritten after the fact."""
+    row = _get_or_404(conn, draft_id)
+    if row["status"] not in ("pending_review", "approved"):
+        raise HTTPException(status_code=400, detail="Only pending or approved drafts can be edited")
+    if patch.institutionEmail is not None and patch.institutionEmail != "" and not mailer.is_valid_address(patch.institutionEmail):
+        raise HTTPException(status_code=400, detail="Invalid recipient email address")
+    store_db.update_draft(
+        conn,
+        draft_id,
+        subject=patch.subject,
+        body=patch.body,
+        institution_email=patch.institutionEmail,
+    )
+    return _row_to_draft(_get_or_404(conn, draft_id))
 
 
 @router.post("/{draft_id}/approve", response_model=OutreachDraft, summary="Approve a draft (admin)")

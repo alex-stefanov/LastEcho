@@ -196,6 +196,34 @@ def set_status_if(
     return cur.rowcount > 0
 
 
+def update_draft(
+    conn: sqlite3.Connection,
+    draft_id: int,
+    *,
+    subject: str | None = None,
+    body: str | None = None,
+    institution_email: str | None = None,
+) -> None:
+    """Let the admin edit a draft's content/recipient before it's sent. Only
+    touches fields that were actually passed (None = leave unchanged)."""
+    fields: list[str] = []
+    values: list[Any] = []
+    if subject is not None:
+        fields.append("subject = ?")
+        values.append(_clip(subject, _MAX_SUBJECT))
+    if body is not None:
+        fields.append("body = ?")
+        values.append(_clip(body, _MAX_BODY))
+    if institution_email is not None:
+        fields.append("institution_email = ?")
+        values.append(institution_email)
+    if not fields:
+        return
+    values.append(draft_id)
+    conn.execute(f"UPDATE outreach_queue SET {', '.join(fields)} WHERE id = ?", values)
+    conn.commit()
+
+
 def revert_send_claim(conn: sqlite3.Connection, draft_id: int) -> None:
     """Undo a 'sent' claim after delivery failed: back to approved, clear sent_at,
     so the admin can retry and the draft is never shown as sent when it wasn't."""

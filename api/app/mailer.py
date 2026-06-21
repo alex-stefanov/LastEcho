@@ -32,8 +32,12 @@ def is_configured(settings: Settings) -> bool:
     return bool(settings.smtp_host and settings.smtp_from)
 
 
+def is_valid_address(to: str) -> bool:
+    return not any(c in to for c in "\r\n") and bool(_ADDRESS_RE.match(to))
+
+
 def _require_valid_address(to: str) -> None:
-    if any(c in to for c in "\r\n") or not _ADDRESS_RE.match(to):
+    if not is_valid_address(to):
         raise ValueError(f"Invalid recipient address: {to!r}")
 
 
