@@ -17,7 +17,7 @@ api/
 │   └── routers/
 │       └── languages.py  # /api/health, /api/meta, /api/languages
 ├── scripts/
-│   └── build_data.py     # OFFLINE: generates data/languages.json (stdlib only)
+│   └── build_data.py     # OFFLINE: builds data/languages.json from the real snapshot (stdlib only)
 ├── data/
 │   └── languages.json    # the artifact (generated, git-ignored if you prefer)
 ├── tests/
@@ -26,9 +26,27 @@ api/
 └── requirements-dev.txt
 ```
 
-The split mirrors the real plan: `scripts/build_data.py` is the offline
-train-and-predict slot (today it generates a mock dataset); `app/` only ever
-reads the artifact it produces.
+The split keeps data generation offline: `scripts/build_data.py` builds the
+outreach dataset from the real Glottolog snapshot the frontend ships, ranked by
+the same triage score as the Rescue Queue; `app/` only ever reads the artifact
+it produces.
+
+## Yearly data refresh
+
+The dataset changes about once a year. To regenerate it after the frontend's
+`client/src/data/timeline_by_year/` snapshots are updated, run one command:
+
+```bash
+python scripts/build_data.py        # rewrites data/languages.json from 2026.json
+```
+
+This reads `client/src/data/timeline_by_year/{TODAY}.json`, scores every
+eligible language (urgency + population + family uniqueness), and writes
+`data/languages.json` ranked most-urgent-first. To roll the snapshot year, bump
+`TODAY` at the top of `scripts/build_data.py`. Language ids are derived from the
+ISO code, so a rebuild keeps stable ids — a language you've already contacted is
+never re-drafted. Commit the regenerated `data/languages.json`; the deployed API
+loads it on startup and the sweep drafts from it.
 
 ## Setup
 
