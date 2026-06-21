@@ -20,6 +20,7 @@ import logging
 import math
 import re
 import time
+from functools import lru_cache
 from typing import Any
 
 import httpx
@@ -76,6 +77,11 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
+# Each call runs a KD-tree query; build_ladder asks for the same coordinate
+# twice (org pick + national pick), and the same languages repeat across every
+# request. The result is a pure function of the coordinate, so memoize it —
+# turning the repeats into dict hits. Bounded so it can't grow without limit.
+@lru_cache(maxsize=4096)
 def country_for(lat: float, lng: float) -> str | None:
     """Reverse-geocode to an ISO alpha-2 country code, or None if unreliable."""
     [match] = rg.search([(lat, lng)])

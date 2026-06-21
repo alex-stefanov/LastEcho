@@ -40,13 +40,18 @@ def _load_dotenv(path: Path) -> None:
         return
     except ImportError:
         pass
-    # Fallback: minimal parser (does not handle inline comments or escapes).
+    # Fallback: minimal parser. Handles surrounding quotes and *unquoted* inline
+    # comments (so `KEY=secret # note` loads `secret`, not `secret # note`).
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        value = value.strip()
+        # Strip an unquoted trailing comment; quoted values keep their '#'.
+        if value[:1] not in ("'", '"'):
+            value = value.split(" #", 1)[0].rstrip()
+        os.environ.setdefault(key.strip(), value.strip('"').strip("'"))
 
 
 # Load api/.env before settings are read, so SMTP creds etc. land in os.environ.
@@ -206,6 +211,23 @@ class Settings:
     @property
     def admin_configured(self) -> bool:
         return bool(self.admin_password)
+
+    def __post_init__(self) -> None:
+        # Fail loudly on the one deployment shape that silently breaks admin auth:
+        # multiple workers with a per-process random signing key. Each worker would
+        # then sign tokens with a different key, so a token minted on worker A is
+        # rejected (401) by worker B — intermittently, depending on which worker the
+        # load balancer routes to. The same per-process assumption also makes the
+        # rate limiter and sweep dedup unreliable across workers. Pinning
+        # LASTECHO_ADMIN_TOKEN gives every worker the same key and resolves it.
+        workers = int(os.environ.get("WEB_CONCURRENCY", "1") or "1")
+        if self.admin_configured and workers > 1 and not os.environ.get("LASTECHO_ADMIN_TOKEN"):
+            raise RuntimeError(
+                "Multi-worker deployment (WEB_CONCURRENCY > 1) requires a pinned "
+                "LASTECHO_ADMIN_TOKEN: per-process random signing keys make admin "
+                "tokens fail verification across workers. Set LASTECHO_ADMIN_TOKEN "
+                "to a stable secret, or run a single worker."
+            )
 
 
 settings = Settings()

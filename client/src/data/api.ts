@@ -204,10 +204,13 @@ export async function escalateDraft(id: number): Promise<OutreachDraft | null> {
   return res.json();
 }
 
-export async function runTriage(): Promise<TriageRunResult> {
+// Kicks off the triage sweep, which now runs in the background on the server and
+// returns 202 immediately (a full sweep does live ROR + model calls and can take
+// minutes — it must not block the request). There are no synchronous counts to
+// return; callers refresh the queue shortly after to pick up any new drafts.
+export async function runTriage(): Promise<void> {
   const res = await fetch(`${API_BASE}/api/triage/run`, { method: 'POST', headers: adminHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: failed to run triage sweep`);
-  return res.json();
 }
 
 // Ping the health endpoint to keep Render's free-tier instance from sleeping

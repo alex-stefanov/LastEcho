@@ -287,10 +287,15 @@ export default function AdminView() {
       setDrafts(rows);
       if (!rows.some((r) => r.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
       // Handling a draft can free a review slot — top the queue back up with the
-      // next most-urgent untouched language. Fire-and-forget so the action stays
-      // snappy; refresh again only if the sweep actually drafted something.
+      // next most-urgent untouched language. The sweep now runs in the background
+      // on the server (returns immediately), so kick it off and re-fetch shortly
+      // after to pick up anything it drafted. Fire-and-forget so the action stays snappy.
       runTriage()
-        .then((res) => (res.drafted > 0 ? fetchOutreachQueue().then(setDrafts) : null))
+        .then(() => {
+          setTimeout(() => {
+            fetchOutreachQueue().then(setDrafts).catch(() => {});
+          }, 4000);
+        })
         .catch(() => {});
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Action failed');

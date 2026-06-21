@@ -72,6 +72,12 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_outreach_language ON outreach_queue(language_id)"
     )
+    # Composite (language_id, id DESC) so latest_per_language's "newest row per
+    # language" subquery is a single index seek rather than a per-group rescan —
+    # this powers the public /api/outreach-status hit on every globe load.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_outreach_lang_id ON outreach_queue(language_id, id DESC)"
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS country_institutions (

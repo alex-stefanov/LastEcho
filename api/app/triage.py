@@ -105,8 +105,12 @@ def escalate(
     current = store_db.get_draft(conn, draft_id)
     if current is None:
         return None
-    store_db.set_status(conn, draft_id, "no_reply")
 
+    # Don't mutate the current draft until we know there's actually a next rung to
+    # queue. Marking it "no_reply" first (then bailing because the language is gone
+    # or the ladder is exhausted) would strand it: out of "sent" with no successor,
+    # and the public status loses its signal for nothing. So resolve the successor
+    # *before* the status change below.
     language = languages_by_id.get(current["language_id"])
     if language is None:
         return None
@@ -131,8 +135,10 @@ def escalate(
             return None
     next_index = current_index + 1
     if next_index >= len(ladder):
-        return None  # already at the last rung (global) — ladder exhausted
+        return None  # already at the last rung (global) — leave it 'sent', nothing to escalate to
 
+    # A successor exists — now it's safe to retire the current rung and queue the next.
+    store_db.set_status(conn, draft_id, "no_reply")
     next_rung = ladder[next_index]
     draft = outreach.draft(language, next_rung.institution, next_rung.tier, api_key=anthropic_api_key)
     new_id = store_db.insert_draft(

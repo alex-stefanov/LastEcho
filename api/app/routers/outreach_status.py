@@ -8,6 +8,7 @@ admin-only outreach_queue router.
 from __future__ import annotations
 
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,19 +22,21 @@ from ..schemas import Institution, OutreachStatusSummary
 router = APIRouter(prefix="/api", tags=["outreach"])
 
 # The matched-institution count for a language is derived from static in-memory
-# data plus the ROR cache, so it's effectively constant for the process lifetime.
-# Computing it calls matched_institutions -> build_ladder, which reverse-geocodes
-# (twice) per language — and this runs on a public endpoint hit on every globe
-# load, for every language ever contacted. Memoize it so that cost is paid once
-# per language rather than on every request. (Worst case is a cosmetic ±1
-# staleness if a later sweep warms a new national rung; cleared on restart.)
-_institution_count_cache: dict[int, int] = {}
+# data plus the ROR cache. Computing it calls matched_institutions -> build_ladder,
+# which reverse-geocodes per language — and this runs on a public endpoint hit on
+# every globe load, for every language ever contacted. Memoize it so that cost is
+# paid once per language rather than on every request. A short TTL bounds staleness
+# (a later sweep can warm a new national rung, changing the count by ±1) to minutes
+# rather than the whole process lifetime — without re-paying the cost per request.
+_COUNT_TTL_SECONDS = 300.0
+_institution_count_cache: dict[int, tuple[float, int]] = {}
 
 
 def _institution_count(conn: sqlite3.Connection, store: DataStore, language) -> int:
+    now = time.monotonic()
     cached = _institution_count_cache.get(language.id)
-    if cached is not None:
-        return cached
+    if cached is not None and now - cached[0] < _COUNT_TTL_SECONDS:
+        return cached[1]
     count = len(
         matching.matched_institutions(
             conn, store.institutions, language,
@@ -41,7 +44,7 @@ def _institution_count(conn: sqlite3.Connection, store: DataStore, language) -> 
             organizations=store.organizations,
         )
     )
-    _institution_count_cache[language.id] = count
+    _institution_count_cache[language.id] = (now, count)
     return count
 
 
