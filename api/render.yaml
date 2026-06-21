@@ -2,6 +2,7 @@ services:
   - type: web
     name: lastecho-api
     runtime: docker
+    rootDir: api
     dockerfilePath: ./Dockerfile
     dockerContext: .
     plan: free
