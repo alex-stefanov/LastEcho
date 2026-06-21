@@ -2,7 +2,6 @@ import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from '
 import {
   approveDraft,
   clearAdminToken,
-  escalateDraft,
   fetchOutreachQueue,
   hasAdminToken,
   loginAdmin,
@@ -444,10 +443,7 @@ export default function AdminView() {
                     </>
                   )}
                   {selected.status === 'sent' && (
-                    <>
-                      <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, markReplied)}>Mark replied</button>
-                      <button className="admin-action" type="button" disabled={busy || !selected.canEscalate} onClick={() => act(selected.id, escalateDraft)}>Escalate</button>
-                    </>
+                    <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, markReplied)}>Mark replied</button>
                   )}
                 </div>
                 {error && <p className="admin-error" role="alert">{error}</p>}

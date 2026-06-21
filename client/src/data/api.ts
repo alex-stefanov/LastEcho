@@ -196,13 +196,6 @@ export async function markReplied(id: number): Promise<OutreachDraft> {
   return res.json();
 }
 
-// Marks the current rung "no reply" and queues the next rung of the ladder
-// (local -> continental -> global). Returns null if already at the last rung.
-export async function escalateDraft(id: number): Promise<OutreachDraft | null> {
-  const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/escalate`, { method: 'POST', headers: adminHeaders() });
-  if (!res.ok) throw new Error(`API ${res.status}: failed to escalate draft`);
-  return res.json();
-}
 
 // Kicks off the triage sweep, which now runs in the background on the server and
 // returns 202 immediately (a full sweep does live ROR + model calls and can take
