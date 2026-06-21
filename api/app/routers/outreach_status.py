@@ -20,6 +20,30 @@ from ..schemas import Institution, OutreachStatusSummary
 
 router = APIRouter(prefix="/api", tags=["outreach"])
 
+# The matched-institution count for a language is derived from static in-memory
+# data plus the ROR cache, so it's effectively constant for the process lifetime.
+# Computing it calls matched_institutions -> build_ladder, which reverse-geocodes
+# (twice) per language — and this runs on a public endpoint hit on every globe
+# load, for every language ever contacted. Memoize it so that cost is paid once
+# per language rather than on every request. (Worst case is a cosmetic ±1
+# staleness if a later sweep warms a new national rung; cleared on restart.)
+_institution_count_cache: dict[int, int] = {}
+
+
+def _institution_count(conn: sqlite3.Connection, store: DataStore, language) -> int:
+    cached = _institution_count_cache.get(language.id)
+    if cached is not None:
+        return cached
+    count = len(
+        matching.matched_institutions(
+            conn, store.institutions, language,
+            ror_cache_ttl_days=settings.ror_cache_ttl_days,
+            organizations=store.organizations,
+        )
+    )
+    _institution_count_cache[language.id] = count
+    return count
+
 
 def _summary_for_row(conn: sqlite3.Connection, row: sqlite3.Row, institution_count: int) -> OutreachStatusSummary:
     status = row["status"]
@@ -48,15 +72,7 @@ def outreach_status(
     out: dict[int, OutreachStatusSummary] = {}
     for language_id, row in latest.items():
         language = by_id.get(language_id)
-        count = 0
-        if language is not None:
-            count = len(
-                matching.matched_institutions(
-                    conn, store.institutions, language,
-                    ror_cache_ttl_days=settings.ror_cache_ttl_days,
-                    organizations=store.organizations,
-                )
-            )
+        count = _institution_count(conn, store, language) if language is not None else 0
         out[language_id] = _summary_for_row(conn, row, count)
     return out
 

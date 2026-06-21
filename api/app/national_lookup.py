@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import time
 from typing import Any
 
 import httpx
@@ -47,6 +48,23 @@ KEYWORD_BLOCK = ("school of languages", "language school", "language academy ltd
 # land point, even mid-ocean. If the match is implausibly far from the query,
 # treat the country as unresolved rather than trust a misleading snap.
 MAX_SNAP_KM = 300.0
+
+# Per-call wall-clock budget across the three ROR queries below — each httpx
+# call has its own 8s timeout, so without an aggregate cap one lookup could
+# block ~24s. Bounds how long a single sweep/escalate item waits on ROR.
+_TOTAL_DEADLINE_SECONDS = 12.0
+
+# Caps on the third-party ROR fields we persist and later render in the admin
+# UI. The name flows into the stored institution_id/name; the URL is rendered as
+# a clickable href, so only http(s) is allowed (no javascript:/data: schemes).
+_MAX_NAME = 200
+_MAX_URL = 500
+
+
+def _safe_url(value: Any) -> str | None:
+    if isinstance(value, str) and value.startswith(("http://", "https://")):
+        return value[:_MAX_URL]
+    return None
 
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -101,9 +119,13 @@ def lookup_country_institutions(country_code: str, limit: int = 2) -> list[dict[
         return []
 
     seen: dict[str, dict[str, Any]] = {}
+    deadline = time.monotonic() + _TOTAL_DEADLINE_SECONDS
     try:
         with httpx.Client(timeout=8.0) as client:
             for term in QUERY_TERMS:
+                if time.monotonic() >= deadline:
+                    logger.warning("ROR lookup for %s hit its time budget; using partial results", country_code)
+                    break
                 resp = client.get(ROR_URL, params={"query": term, "filter": f"country.country_code:{country_code}"})
                 resp.raise_for_status()
                 for org in resp.json().get("items", []):
@@ -120,10 +142,12 @@ def lookup_country_institutions(country_code: str, limit: int = 2) -> list[dict[
     out = []
     for org in ranked:
         links = org.get("links") or []
-        website = next((l["value"] for l in links if l.get("type") == "website"), None)
+        website = _safe_url(next((l.get("value") for l in links if l.get("type") == "website"), None))
         out.append(
             {
-                "name": _display_name(org),
+                # Clip/validate third-party fields before they are stored and
+                # later rendered in the admin UI (see _MAX_NAME / _safe_url).
+                "name": _display_name(org)[:_MAX_NAME],
                 "type": next(iter(org.get("types", [])), "organization"),
                 "url": website,
                 "contact_url": website,
