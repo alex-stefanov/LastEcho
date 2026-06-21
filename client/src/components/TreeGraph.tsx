@@ -186,8 +186,8 @@ function buildForest(groups: MajorGroup[]): Forest {
       const rad = Math.sqrt(rand()) * r;
       const ox = Math.cos(a) * rad;
       const oy = Math.sin(a) * rad * 0.92 - r * 0.12;
-      const gd = 0.2 + seq * 0.0012 + rand() * 0.3; // grow-in delay (s)
-      const fd = rand() * 0.5; // fall delay (s)
+      const gd = 0.1 + seq * 0.0006 + rand() * 0.15; // grow-in delay (s)
+      const fd = rand() * 0.25; // fall delay (s)
       const drift = jit(40); // horizontal drift while falling (px)
       const spin = jit(150); // rotation while falling (deg)
       leaves.push({
@@ -384,7 +384,7 @@ export default function TreeGraph({ year, yearData, selectedIso, onSelect }: Pro
     });
   };
 
-  // Cap-panel counts: living = healthy, fading = watch + serious, fallen = gone.
+  // Cap-panel counts: living = healthy, fading = watch + serious, fallen = gone + unknown.
   const counts = useMemo(() => {
     let living = 0;
     let fading = 0;
@@ -393,18 +393,18 @@ export default function TreeGraph({ year, yearData, selectedIso, onSelect }: Pro
       for (const l of yearData.languages) {
         if (l.vitality_group === 'healthy') living++;
         else if (l.vitality_group === 'watch' || l.vitality_group === 'serious') fading++;
-        else if (l.vitality_group === 'gone') fallen++;
+        else if (l.vitality_group === 'gone' || l.vitality_group === 'unknown') fallen++;
       }
     }
     return { living, fading, fallen };
   }, [yearData]);
 
-  // Languages whose last voice has fallen silent by this year.
+  // Languages whose last voice has fallen silent by this year (including unknown status).
   const fallenList = useMemo(
     () =>
       yearData
         ? yearData.languages
-            .filter((l) => l.vitality_group === 'gone')
+            .filter((l) => l.vitality_group === 'gone' || l.vitality_group === 'unknown')
             .sort((a, b) => a.name.localeCompare(b.name))
         : [],
     [yearData],
@@ -582,7 +582,7 @@ export default function TreeGraph({ year, yearData, selectedIso, onSelect }: Pro
             <p className="fallen-empty">None yet — drag the years forward to watch them go.</p>
           ) : (
             <ul className="fallen-list">
-              {fallenList.slice(0, 80).map((l) => (
+              {fallenList.map((l) => (
                 <li key={l.iso_code}>
                   <button className="fallen-item" onClick={() => onSelect(l.iso_code)}>
                     <span className="fallen-name">{l.name}</span>

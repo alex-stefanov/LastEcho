@@ -1214,7 +1214,16 @@ body {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.45) transparent;
 }
+.fallen-list::-webkit-scrollbar { width: 4px; }
+.fallen-list::-webkit-scrollbar-track { background: transparent; }
+.fallen-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.45); border-radius: 2px; }
+:root[data-theme='light'] .fallen-list {
+  scrollbar-color: var(--line-strong) transparent;
+}
+:root[data-theme='light'] .fallen-list::-webkit-scrollbar-thumb { background: var(--line-strong); }
 .fallen-item {
   display: flex;
   flex-direction: column;
@@ -1385,9 +1394,9 @@ body {
      animating opacity on ~3,400 circles forces the GPU-promoted .lt-canopy layer
      to re-rasterise every frame forever — the canopy's slow `sway` already keeps
      it alive, so the shimmer isn't worth that constant repaint cost. */
-  animation: leafIn 0.55s ease backwards;
+  animation: leafIn 0.3s ease backwards;
   animation-delay: var(--gd, 0s);
-  transition: fill 0.55s ease, transform 0.15s ease, opacity 0.3s ease;
+  transition: fill 0.3s ease, transform 0.15s ease, opacity 0.3s ease;
 }
 .leaf.grp-healthy {
   fill: #35d49a;
@@ -1402,9 +1411,10 @@ body {
   fill: #8d7fce;
 }
 .leaf.grp-gone {
-  fill: #15130f;
-  animation: leafFall 2.1s cubic-bezier(0.4, 0.06, 0.5, 0.95) forwards;
+  fill: #ff1f3d;
+  animation: leafFall 1.6s cubic-bezier(0.4, 0.06, 0.5, 0.95) forwards;
   animation-delay: var(--fd, 0s);
+  will-change: transform, opacity;
 }
 .leaf.dim {
   opacity: 0.12 !important;
@@ -1419,9 +1429,12 @@ body {
   to { transform: scale(1); opacity: 1; }
 }
 @keyframes leafFall {
-  0% { transform: translate(0, 0) rotate(0deg); opacity: 0.92; }
-  12% { opacity: 0.92; }
-  100% { transform: translate(var(--drift, 20px), 330px) rotate(var(--spin, 140deg)); opacity: 0; }
+  0% { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 0.95; fill: #ff1f3d; }
+  6% { transform: translate(0, 0) scale(3.2) rotate(-12deg); opacity: 1; fill: #ff8a3c; }
+  12% { transform: translate(0, 0) scale(2.6) rotate(10deg); opacity: 1; fill: #ff5a3c; }
+  20% { transform: translate(0, 0) scale(1.8) rotate(-6deg); opacity: 1; fill: #15130f; }
+  28% { transform: translate(0, 4px) scale(1.4) rotate(4deg); opacity: 1; fill: #15130f; }
+  100% { transform: translate(var(--drift, 20px), 330px) scale(1) rotate(var(--spin, 140deg)); opacity: 0; fill: #15130f; }
 }
 
 /* --- detail drawer (compact, scrollable, docked below the caption) --- */
