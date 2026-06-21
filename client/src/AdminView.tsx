@@ -199,8 +199,17 @@ export default function AdminView() {
   const selected = drafts.find((draft) => draft.id === selectedId) ?? visibleDrafts[0] ?? null;
   const canEdit = selected?.status === 'pending_review' || selected?.status === 'approved';
 
+  // A draft can't be sent without a recipient, so if the selected one is missing
+  // an email, drop the admin straight into the edit form (with the email field
+  // ready) instead of making them hunt for the Edit button. Otherwise reset to
+  // read view when switching drafts.
   useEffect(() => {
-    setEditing(false);
+    if (selected && !selected.institutionEmail && (selected.status === 'pending_review' || selected.status === 'approved')) {
+      setEditFields({ subject: selected.subject, body: selected.body, institutionEmail: '' });
+      setEditing(true);
+    } else {
+      setEditing(false);
+    }
   }, [selected?.id]);
 
   const startEdit = () => {
@@ -215,6 +224,12 @@ export default function AdminView() {
 
   const saveEdit = async () => {
     if (!selected) return;
+    // A recipient is mandatory — the draft is unsendable without one, so block
+    // saving an empty email rather than letting it slip through to a dead end.
+    if (!editFields.institutionEmail.trim()) {
+      setError('A recipient email is required.');
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
