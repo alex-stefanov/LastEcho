@@ -281,6 +281,13 @@ export default function AdminView() {
     setAuthenticated(false);
   };
 
+  // Leaving the admin surface ends the session: clear the token, then navigate
+  // back to the public globe so returning to /admin requires logging in again.
+  const goHome = () => {
+    clearAdminToken();
+    window.location.href = '/';
+  };
+
   if (!authenticated) {
     return <AdminLogin theme={theme} onToggleTheme={() => setTheme((c) => c === 'dark' ? 'light' : 'dark')} onLogin={() => setAuthenticated(true)} />;
   }
@@ -290,6 +297,12 @@ export default function AdminView() {
       <section className="admin-shell">
         <header className="admin-topbar">
           <div>
+            <button className="admin-back" type="button" onClick={goHome}>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 5l-7 7 7 7" />
+              </svg>
+              <span>Back to globe</span>
+            </button>
             <h1>Signal Desk</h1>
             <p className="admin-tagline">Admin console for outreach review and partner contact decisions.</p>
           </div>
