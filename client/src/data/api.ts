@@ -210,11 +210,13 @@ export async function runTriage(): Promise<TriageRunResult> {
   return res.json();
 }
 
-// Ping the health endpoint every 4 minutes to prevent Render's free-tier
-// instance from sleeping between requests. Returns a cleanup function.
+// Ping the health endpoint to keep Render's free-tier instance from sleeping
+// between requests. Fires once immediately (to start warming a cold instance as
+// soon as a page loads) and then every 4 minutes. Returns a cleanup function.
 export function startKeepAlive(): () => void {
   const INTERVAL_MS = 4 * 60 * 1000;
   const ping = () => fetch(`${API_BASE}/api/health`).catch(() => {});
+  ping();
   const id = setInterval(ping, INTERVAL_MS);
   return () => clearInterval(id);
 }
