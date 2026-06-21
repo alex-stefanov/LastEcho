@@ -129,9 +129,17 @@ class Language(BaseModel):
     lat: float
     lng: float
     family: str
-    region: str
-    speakers: int
-    docLevel: DocLevel
+    # Named endangerment hotspot. Empty for languages sourced from the real
+    # Glottolog snapshot (which has no hotspot grouping); the regional ladder
+    # rung is simply skipped for those (see matching._regional_pick).
+    region: str = ""
+    # Optional for real-snapshot languages: speaker counts and documentation
+    # level aren't always known. The outreach drafter degrades gracefully.
+    speakers: Optional[int] = None
+    docLevel: Optional[DocLevel] = None
+    # Glottolog vitality level (e.g. "critical", "vulnerable") when sourced from
+    # the real snapshot; drives the outreach urgency line.
+    risk: Optional[str] = None
     rank: int
     # Closed-form vitality profile; null means "never declines" / "never lost".
     declineStart: Optional[int] = None

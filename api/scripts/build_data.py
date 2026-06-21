@@ -1,164 +1,147 @@
 """Offline data build — generates the precomputed dataset the API serves.
 
-This is the stand-in for the real train-and-predict pipeline. For now it emits a
-deterministic mock dataset to ``data/languages.json``. Later, this same script
-will load the training file, fit the model, and write (a) these precomputed
-per-language predictions and (b) a saved model artifact for the future live
-"score my language" endpoint.
+Reads the real Glottolog snapshot the frontend ships
+(client/src/data/timeline_by_year/{TODAY}.json) and emits the outreach
+dataset to ``data/languages.json``, ranked by the *same* triage score the
+frontend's Rescue Queue uses (ported from client/src/data/triage.ts). This is
+what makes the outreach queue draft real, triage-ordered languages rather than
+placeholder data.
 
-It depends only on the standard library, so it can run without the API's
-runtime dependencies.
+It depends only on the standard library. Run from the api/ directory:
 
-Run from the api/ directory:  python scripts/build_data.py
+    python scripts/build_data.py
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
-import random
+import math
 from pathlib import Path
 
 # scripts/build_data.py -> api/
 API_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = API_ROOT.parent
+TIMELINE_DIR = REPO_ROOT / "client" / "src" / "data" / "timeline_by_year"
 OUTPUT_PATH = API_ROOT / "data" / "languages.json"
 
-MIN_YEAR = 1990
-MAX_YEAR = 2045
 TODAY = 2026
 
-# Deterministic — same seed every build, so the demo is reproducible.
-rnd = random.Random(20260620)
+# Default triage weights — mirror DEFAULT_WEIGHTS in client/src/data/triage.ts
+# so the backend's drafting order matches the Rescue Queue's default view.
+W_URGENCY = 5
+W_POPULATION = 3
+W_UNIQUENESS = 2
+
+# Signal 1: extinction urgency from the Glottolog 8-level risk scale.
+# Mirrors RISK_SCORE in triage.ts.
+RISK_SCORE = {
+    "critical": 1.00,
+    "at_risk": 0.80,
+    "vulnerable": 0.55,
+    "unknown": 0.25,
+    "stable": 0.20,
+    "recovering": 0.10,
+    "alive": 0.05,
+    "lost": 0.00,
+}
 
 
-def jitter(spread: float) -> float:
-    # roughly-gaussian jitter in [-1.5, 1.5] * spread (sum of three uniforms)
-    return (rnd.random() + rnd.random() + rnd.random() - 1.5) * spread
+def _urgency_signal(risk: str) -> float:
+    return RISK_SCORE.get(risk, 0.25)
 
 
-# Grounded in the real endangerment hotspots from PLAN.md.
-HOTSPOTS = [
-    {"name": "New Guinea Highlands", "lat": -5.6, "lng": 143.5, "spread": 6, "count": 34, "family": "Trans–New Guinea"},
-    {"name": "Amazon Basin", "lat": -4.5, "lng": -64, "spread": 9, "count": 26, "family": "Arawakan"},
-    {"name": "Northern Australia", "lat": -14, "lng": 133, "spread": 8, "count": 20, "family": "Pama–Nyungan"},
-    {"name": "Caucasus", "lat": 42.6, "lng": 44.5, "spread": 3, "count": 13, "family": "Northeast Caucasian"},
-    {"name": "Pacific Northwest", "lat": 50, "lng": -124, "spread": 6, "count": 14, "family": "Salishan"},
-    {"name": "Mesoamerica", "lat": 17, "lng": -95, "spread": 5, "count": 14, "family": "Oto–Manguean"},
-    {"name": "West Africa", "lat": 8, "lng": 6, "spread": 8, "count": 16, "family": "Niger–Congo"},
-    {"name": "Eastern Himalaya", "lat": 27.5, "lng": 93, "spread": 5, "count": 18, "family": "Sino–Tibetan"},
-    {"name": "Siberia", "lat": 62, "lng": 108, "spread": 12, "count": 12, "family": "Tungusic"},
-    {"name": "Mainland SE Asia", "lat": 20, "lng": 101, "spread": 6, "count": 14, "family": "Austroasiatic"},
-]
-
-SYLL = ["ka", "wa", "mi", "tu", "na", "ku", "li", "ya", "ro", "en", "ba",
-        "si", "to", "nga", "ai", "um", "da", "we", "pa", "ngu"]
-DOC = ["none", "wordlist", "grammar sketch", "full grammar"]
-SCATTER_FAMILIES = ["Sino–Tibetan", "Niger–Congo", "Austronesian", "Indo–European", "Uralic", "Isolate"]
+def _population_signal(speakers: int | None, log_max: float) -> float:
+    # Fewer speakers = higher need; unknown/none counts as maximum need.
+    if speakers is None or speakers <= 0:
+        return 1.0
+    if log_max <= 0:
+        return 0.0
+    return 1 - math.log(speakers + 1) / log_max
 
 
-def coin_name() -> str:
-    n = 2 + int(rnd.random() * 2)
-    out = "".join(SYLL[int(rnd.random() * len(SYLL))] for _ in range(n))
-    return out[0].upper() + out[1:]
+def _uniqueness_signal(family_root: str, family_sizes: dict[str, int]) -> float:
+    # Last of its family = most unique. Mirrors uniquenessSignal in triage.ts.
+    n = family_sizes.get(family_root, 1)
+    if n == 1:
+        return 1.00
+    if n <= 3:
+        return 0.75
+    if n <= 10:
+        return 0.45
+    if n <= 30:
+        return 0.20
+    return 0.05
 
 
-def build_profile() -> dict:
-    r = rnd.random()
-    if r < 0.4:
-        return {"declineStart": None, "lostYear": None}  # stable / alive
-    if r < 0.62:
-        # chronic at-risk, some heading to loss
-        lost = TODAY + int(rnd.random() * 18) if rnd.random() < 0.4 else None
-        return {"declineStart": 1900, "lostYear": lost}
-    if r < 0.85:
-        # actively declining within the window
-        decline_start = 1995 + int(rnd.random() * 30)
-        return {"declineStart": decline_start, "lostYear": decline_start + 8 + int(rnd.random() * 32)}
-    # already lost
-    lost_year = 1992 + int(rnd.random() * 32)
-    return {"declineStart": lost_year - (5 + int(rnd.random() * 15)), "lostYear": lost_year}
+def _triage_score(lang: dict, log_max: float, family_sizes: dict[str, int]) -> float:
+    total = W_URGENCY + W_POPULATION + W_UNIQUENESS
+    return (
+        W_URGENCY * _urgency_signal(lang["risk"])
+        + W_POPULATION * _population_signal(lang.get("speakers"), log_max)
+        + W_UNIQUENESS * _uniqueness_signal(lang.get("family_root") or "Unknown", family_sizes)
+    ) / total
 
 
-def speakers_for(profile: dict) -> int:
-    if profile["lostYear"] is not None and profile["lostYear"] <= TODAY:
-        return 0
-    if profile["declineStart"] is not None and profile["declineStart"] <= TODAY:
-        return 20 + int(rnd.random() * 3000)
-    return 1500 + int(rnd.random() * 90000)
-
-
-def doc_level() -> str:
-    idx = min(3, int(rnd.random() * rnd.random() * 4 + rnd.random() * 0.6))
-    return DOC[idx]
+def _stable_id(iso_code: str) -> int:
+    """A deterministic, JS-safe (<2^53) int id derived from the ISO code, so ids
+    stay stable across rebuilds — the sweep keys "already contacted" on id, and a
+    stable id means a yearly rebuild never re-drafts a language already handled."""
+    return int(hashlib.sha1(iso_code.encode("utf-8")).hexdigest()[:12], 16)
 
 
 def generate() -> list[dict]:
+    snapshot = json.loads((TIMELINE_DIR / f"{TODAY}.json").read_text(encoding="utf-8"))
+    langs = snapshot["languages"]
+
+    # Eligible for outreach: not already lost, and not a positive-zero speaker
+    # count (mirrors rankLanguages' filter in triage.ts). Null speakers are kept.
+    eligible = [
+        l for l in langs
+        if l.get("risk") != "lost"
+        and (l.get("speakers") is None or l["speakers"] > 0)
+        and l.get("latitude_map") is not None
+        and l.get("longitude_map") is not None
+    ]
+
+    # Dataset-wide normalizers, computed once (as in triage.ts buildLogMax / buildFamilySizes).
+    max_speakers = max((l["speakers"] for l in eligible if l.get("speakers")), default=0)
+    log_max = math.log(max_speakers + 1)
+    family_sizes: dict[str, int] = {}
+    for l in eligible:
+        fam = l.get("family_root") or "Unknown"
+        family_sizes[fam] = family_sizes.get(fam, 0) + 1
+
+    eligible.sort(key=lambda l: _triage_score(l, log_max, family_sizes), reverse=True)
+
     out: list[dict] = []
-    next_id = 0
-
-    def push(lat: float, lng: float, family: str, region: str) -> None:
-        nonlocal next_id
-        profile = build_profile()
+    for i, l in enumerate(eligible):
         out.append({
-            "id": next_id,
-            "name": coin_name(),
-            "lat": max(-78, min(80, lat)),
-            "lng": ((lng + 540) % 360) - 180,
-            "family": "Isolate" if rnd.random() < 0.08 else family,
-            "region": region,
-            "speakers": speakers_for(profile),
-            "docLevel": doc_level(),
-            "rank": 0,
-            **profile,
+            "id": _stable_id(l["iso_code"]),
+            "name": l["name"],
+            "lat": l["latitude_map"],
+            "lng": l["longitude_map"],
+            "family": l.get("family_root") or "Unknown",
+            "region": "",  # no hotspot grouping in the real snapshot; regional rung is skipped
+            "speakers": l.get("speakers"),
+            "docLevel": None,  # not present in the snapshot
+            "risk": l.get("risk"),
+            "rank": i + 1,  # 1 = most urgent by triage score
+            "declineStart": None,
+            "lostYear": None,
         })
-        next_id += 1
-
-    for hotspot in HOTSPOTS:
-        for _ in range(hotspot["count"]):
-            push(
-                hotspot["lat"] + jitter(hotspot["spread"]),
-                hotspot["lng"] + jitter(hotspot["spread"]),
-                hotspot["family"],
-                hotspot["name"],
-            )
-
-    # Sparse global scatter so the whole planet reads as inhabited.
-    for _ in range(30):
-        push(
-            jitter(36) + 18,
-            rnd.random() * 360 - 180,
-            SCATTER_FAMILIES[int(rnd.random() * len(SCATTER_FAMILIES))],
-            "Scattered",
-        )
-
-    # Triage rank (placeholder proxy): soonest-closing window first, lost last.
-    def urgency(lang: dict) -> float:
-        if lang["lostYear"] is not None and lang["lostYear"] <= TODAY:
-            return -1  # already lost
-        if lang["lostYear"] is not None:
-            return MAX_YEAR + 1 - lang["lostYear"]  # sooner = higher
-        if lang["declineStart"] is not None:
-            return 4
-        return 0
-
-    def doc_gap(lang: dict) -> int:
-        return 3 - DOC.index(lang["docLevel"])  # thinner record = higher
-
-    out.sort(key=lambda lang: urgency(lang) * 4 + doc_gap(lang), reverse=True)
-    for i, lang in enumerate(out):
-        lang["rank"] = i + 1
-
     return out
 
 
 def main() -> None:
     languages = generate()
     payload = {
-        "meta": {"minYear": MIN_YEAR, "maxYear": MAX_YEAR, "today": TODAY},
+        "meta": {"minYear": 2000, "maxYear": 2050, "today": TODAY},
         "languages": languages,
     }
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Wrote {len(languages)} languages -> {OUTPUT_PATH}")
+    print(f"Wrote {len(languages)} languages to {OUTPUT_PATH} (ranked by triage score).")
 
 
 if __name__ == "__main__":

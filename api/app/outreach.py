@@ -29,14 +29,21 @@ SYSTEM_PROMPT = (
 
 def _user_prompt(language: Language, institution: Institution, tier: str) -> str:
     urgency = (
-        f"already lost as of {language.lostYear}" if language.lostYear and language.lostYear <= 2026
+        f"vitality status: {language.risk}" if language.risk
+        else f"already lost as of {language.lostYear}" if language.lostYear and language.lostYear <= 2026
         else f"projected loss around {language.lostYear}" if language.lostYear
         else "not currently projected to be lost, but under-documented"
     )
+    region_part = f", {language.region} region" if language.region else ""
+    doc_part = f"Current documentation level: {language.docLevel}.\n" if language.docLevel else ""
+    speakers_part = (
+        f"Speaker estimate: {language.speakers}.\n" if language.speakers is not None
+        else "Speaker estimate: unknown.\n"
+    )
     return (
-        f"Language: {language.name} ({language.family} family, {language.region} region).\n"
-        f"Current documentation level: {language.docLevel}.\n"
-        f"Speaker estimate: {language.speakers}.\n"
+        f"Language: {language.name} ({language.family} family{region_part}).\n"
+        f"{doc_part}"
+        f"{speakers_part}"
         f"Status: {urgency}.\n"
         f"Triage rank: #{language.rank} (lower = more urgent) among languages LastEcho is tracking.\n\n"
         f"Institution: {institution.name} ({institution.type}, {institution.scope} scope).\n"
@@ -62,12 +69,17 @@ def _parse_json_response(text: str) -> dict | None:
 
 def _template_draft(language: Language, institution: Institution, tier: str) -> dict:
     subject = f"Documentation support for {language.name} ({language.family})"
+    region_txt = f" in the {language.region} region" if language.region else ""
+    speakers_txt = (
+        f"an estimated {language.speakers} remaining speakers"
+        if language.speakers is not None
+        else "a dwindling number of remaining speakers"
+    )
     body = (
         f"Hello,\n\n"
         f"I'm writing from LastEcho, a small project tracking documentation gaps in "
-        f"endangered languages. {language.name}, a {language.family}-family language in the "
-        f"{language.region} region, currently has only a \"{language.docLevel}\" record and "
-        f"an estimated {language.speakers} remaining speakers.\n\n"
+        f"endangered languages. {language.name}, a {language.family}-family language{region_txt}, "
+        f"has {speakers_txt} and limited documentation.\n\n"
         f"Given {institution.name}'s work in {', '.join(institution.helpTypes) or 'this area'}, "
         f"we wanted to flag this language in case it falls within your scope for support, "
         f"documentation, or referral to someone who can help.\n\n"
@@ -93,7 +105,10 @@ def draft(
     try:
         import anthropic
 
-        client = anthropic.Anthropic(api_key=api_key)
+        # Bound the call: escalate() drafts inline in a request handler, so an
+        # unbounded create() could hang the worker thread (and its DB connection)
+        # indefinitely. On timeout the SDK raises, and we fall back to a template.
+        client = anthropic.Anthropic(api_key=api_key, timeout=20.0)
         response = client.messages.create(
             model="claude-opus-4-8",
             max_tokens=1200,
