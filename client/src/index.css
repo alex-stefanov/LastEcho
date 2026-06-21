@@ -1456,7 +1456,16 @@ body {
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
   animation: detailIn 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   z-index: 6;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.45) transparent;
 }
+.fam-drawer::-webkit-scrollbar { width: 4px; }
+.fam-drawer::-webkit-scrollbar-track { background: transparent; }
+.fam-drawer::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.45); border-radius: 2px; }
+:root[data-theme='light'] .fam-drawer {
+  scrollbar-color: var(--line-strong) transparent;
+}
+:root[data-theme='light'] .fam-drawer::-webkit-scrollbar-thumb { background: var(--line-strong); }
 .fd-close {
   position: absolute;
   top: 12px;
