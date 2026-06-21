@@ -455,6 +455,14 @@ function GlobeView({ yearLangs, width, height, filters, autoRotate, theme, onUse
     if (autoRotate) g.resumeAnimation(); else g.pauseAnimation();
   }, [autoRotate]);
 
+  // When year data changes the scene needs at least one new frame — even if
+  // auto-rotate is off and the render loop is in its idle-paused state.
+  // resumeAnimation() then lets the existing idle-timer logic re-pause after 2s.
+  useEffect(() => {
+    const g = globeEl.current; if (!g) return;
+    g.resumeAnimation();
+  }, [globeObjects]);
+
   const buildObject = useCallback((d: GlobeObj) => {
     if (d.kind === 'grid') {
       const sp = badgeSprite(d.shares, d.color, fmtCount(d.count));

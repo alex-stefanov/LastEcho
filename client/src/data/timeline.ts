@@ -158,6 +158,37 @@ export const GROUP_COLOR: Record<VitalityGroup, string> = {
   unknown: '#8d7fce',
 };
 
+// Monotonic worse-direction rank of the 8-level scale (higher = worse off),
+// used to tell whether a language's status improved or declined between two
+// year snapshots. Distinct from LEVEL_URGENCY, which is a non-monotonic glow
+// weight (e.g. `lost` glows small but is the worst outcome). `unknown` is -1 so
+// transitions into / out of it never register as a direction.
+export const LEVEL_SEVERITY: Record<YearRisk, number> = {
+  alive: 0,
+  stable: 1,
+  recovering: 2,
+  vulnerable: 3,
+  at_risk: 4,
+  critical: 5,
+  lost: 6,
+  unknown: -1,
+};
+
+// How a language's level has drifted between two snapshots. `worse`/`better`
+// move along the severity scale; `shift` covers transitions into or out of
+// `unknown` (the projection gaining or losing confidence), which have no
+// direction but are still a real change worth showing. `steps` is the number of
+// severity levels moved (0 for `shift`/`none`).
+export type Trend = { dir: 'worse' | 'better' | 'shift' | 'none'; steps: number };
+
+export function levelTrend(from: YearRisk, to: YearRisk): Trend {
+  if (from === to) return { dir: 'none', steps: 0 };
+  const a = LEVEL_SEVERITY[from];
+  const b = LEVEL_SEVERITY[to];
+  if (a < 0 || b < 0) return { dir: 'shift', steps: 0 };
+  return { dir: b > a ? 'worse' : 'better', steps: Math.abs(b - a) };
+}
+
 // Within a group, severity still varies by level (e.g. watch's only level is
 // "vulnerable", but "serious" spans at_risk → critical). This drives how big
 // a glow/halo a point gets around its core dot — a second, independent visual

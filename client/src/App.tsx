@@ -22,6 +22,7 @@ import {
   TL_TODAY,
   type VitalityGroup,
   type YearData,
+  type YearRisk,
 } from './data/timeline';
 import { fetchOutreachStatus, type OutreachStatusSummary } from './data/api';
 
@@ -50,6 +51,21 @@ export default function App() {
   const [yearData, setYearData] = useState<YearData | null>(() => getCachedYear(TL_TODAY) ?? null);
   const loadToken = useRef(0);
   const ready = yearData?.year === year;
+
+  // The TODAY (2026) snapshot, pinned for the life of the session so the detail
+  // cards can always show how a language has drifted *from today* — independent
+  // of the LRU-evictable year cache that drives the globe.
+  const [baseline, setBaseline] = useState<YearData | null>(() => getCachedYear(TL_TODAY) ?? null);
+  useEffect(() => {
+    if (baseline) return;
+    loadYear(TL_TODAY).then(setBaseline).catch(() => {});
+  }, [baseline]);
+  const baselineRisk = useMemo(() => {
+    if (!baseline) return null;
+    const m: Record<string, YearRisk> = {};
+    for (const l of baseline.languages) m[l.iso_code] = l.risk;
+    return m;
+  }, [baseline]);
 
   // Load (or reuse cached) the snapshot for the selected year. A stale-token
   // guard keeps fast scrubbing from showing an out-of-order resolved year.
@@ -198,6 +214,8 @@ export default function App() {
           {selectedClusterMembers && !selectedYearLang && (
             <ClusterCard
               members={selectedClusterMembers}
+              baselineRisk={baselineRisk}
+              year={year}
               onSelect={openLanguageFromCluster}
               onClose={() => setSelectedClusterIsos(null)}
             />
@@ -218,6 +236,7 @@ export default function App() {
         <YearLangCard
           lang={selectedYearLang}
           year={year}
+          baseRisk={baselineRisk?.[selectedYearLang.iso_code] ?? null}
           onClose={closeLanguageDetails}
           onBackToList={showClusterBack ? backToClusterList : undefined}
         />
