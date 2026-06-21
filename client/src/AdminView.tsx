@@ -235,6 +235,12 @@ export default function AdminView() {
     sent: drafts.filter((draft) => draft.status === 'sent' || draft.status === 'no_reply').length,
   }), [drafts]);
 
+  // The Ready tab auto-hides when empty (emailable drafts now skip straight to
+  // Sent). If we're sitting on it when the last draft leaves, fall back to Review.
+  useEffect(() => {
+    if (filter === 'ready' && stats.ready === 0) setFilter('review');
+  }, [filter, stats.ready]);
+
   const act = async (id: number, apiCall: (id: number) => Promise<OutreachDraft | null>) => {
     setError(null);
     setBusy(true);
@@ -318,7 +324,7 @@ export default function AdminView() {
 
         <div className="admin-controls">
           <nav className="admin-tabs" aria-label="Outreach filters">
-            {FILTERS.map((item) => (
+            {FILTERS.filter((item) => item.key !== 'ready' || stats.ready > 0).map((item) => (
               <button
                 key={item.key}
                 className={`admin-tab ${filter === item.key ? 'active' : ''}`}
