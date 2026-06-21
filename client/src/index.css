@@ -2018,7 +2018,7 @@ body {
   align-items: center;
   gap: 24px;
   overflow-x: auto;
-  min-height: 42px;
+  min-height: 45px;
   padding: 0 2px;
   border-bottom: 1px solid var(--admin-line);
 }
