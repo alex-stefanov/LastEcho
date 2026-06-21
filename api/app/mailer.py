@@ -7,6 +7,7 @@ silently no-op — an admin must never believe an email went out when it didn't.
 
 from __future__ import annotations
 
+import logging
 import re
 import smtplib
 import ssl
@@ -15,11 +16,15 @@ from email.message import EmailMessage
 
 from .config import Settings
 
+logger = logging.getLogger("lastecho")
+
 # Transient failures (connection drop, timeout, provider throttling) are worth
-# a couple of retries; auth/permanent failures are not, so they're excluded.
+# one retry; auth/permanent failures are not, so they're excluded. Kept tight so
+# an interactive admin send can't hang: worst case is ~timeout + backoff + timeout.
 _RETRYABLE = (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, TimeoutError, OSError)
-_MAX_ATTEMPTS = 3
+_MAX_ATTEMPTS = 2
 _BACKOFF_SECONDS = 2.0
+_SMTP_TIMEOUT = 15
 
 # A single, well-formed address — no commas/semicolons (multiple recipients) and
 # no whitespace. Combined with the control-character check below this prevents
@@ -60,15 +65,18 @@ def send(*, to: str, subject: str, body: str, settings: Settings) -> None:
     msg.set_content(body)
 
     for attempt in range(1, _MAX_ATTEMPTS + 1):
+        started = time.monotonic()
         try:
-            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as server:
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=_SMTP_TIMEOUT) as server:
                 if settings.smtp_use_tls:
                     server.starttls(context=ssl.create_default_context())
                 if settings.smtp_user:
                     server.login(settings.smtp_user, settings.smtp_password or "")
                 server.send_message(msg)
+            logger.info("SMTP send ok in %.1fs (attempt %s)", time.monotonic() - started, attempt)
             return
         except _RETRYABLE:
+            logger.warning("SMTP attempt %s failed after %.1fs", attempt, time.monotonic() - started)
             if attempt == _MAX_ATTEMPTS:
                 raise
             time.sleep(_BACKOFF_SECONDS * attempt)
