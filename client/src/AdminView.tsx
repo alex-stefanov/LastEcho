@@ -341,43 +341,65 @@ export default function AdminView() {
             {selected && (
               <article className="admin-panel-sheet">
                 <div className="admin-detail-head"><h2>{selected.languageName}</h2></div>
-                <div className="admin-field-grid">
+                <div className={`admin-field-grid ${editing ? 'editing' : ''}`}>
                   <div className="admin-field wide">
                     <span>Institution</span><a href={selected.institutionUrl} target="_blank" rel="noreferrer">{selected.institutionName}</a>
                   </div>
-                  <div className="admin-field">
-                    <span>Contact</span>
-                    {editing
-                      ? <input
-                          type="email"
-                          value={editFields.institutionEmail}
-                          placeholder="recipient@example.org"
-                          onChange={(e) => setEditFields((f) => ({ ...f, institutionEmail: e.target.value }))}
-                        />
-                      : <strong>{selected.institutionEmail ?? 'Contact page'}</strong>
-                    }
-                  </div>
+                  {!editing && (
+                    <div className="admin-field">
+                      <span>Contact</span>
+                      <strong>{selected.institutionEmail ?? 'Contact page'}</strong>
+                    </div>
+                  )}
                   <div className="admin-field"><span>Status</span><strong>{STATUS_LABEL[selected.status]}</strong></div>
                   <div className="admin-field"><span>Created</span><strong>{formatDate(selected.createdAt)}</strong></div>
                 </div>
-                <div className="admin-message-card">
-                  <span>Subject</span>
-                  {editing
-                    ? <input
+                {editing ? (
+                  <div className="admin-edit-form">
+                    <div className="admin-edit-banner">
+                      <span className="admin-edit-pip" aria-hidden="true" />
+                      <span className="admin-edit-title">Editing draft</span>
+                      <span className="admin-edit-meta">Unsaved changes</span>
+                    </div>
+                    <label className="admin-edit-field" style={{ animationDelay: '40ms' }}>
+                      <span className="admin-edit-label">Recipient</span>
+                      <input
+                        className="admin-edit-input"
+                        type="email"
+                        value={editFields.institutionEmail}
+                        placeholder="recipient@example.org"
+                        onChange={(e) => setEditFields((f) => ({ ...f, institutionEmail: e.target.value }))}
+                      />
+                      <small className="admin-edit-hint">The email is delivered to this address.</small>
+                    </label>
+                    <label className="admin-edit-field" style={{ animationDelay: '90ms' }}>
+                      <span className="admin-edit-label">Subject</span>
+                      <input
+                        className="admin-edit-input"
                         value={editFields.subject}
                         onChange={(e) => setEditFields((f) => ({ ...f, subject: e.target.value }))}
                       />
-                    : <h3>{selected.subject}</h3>
-                  }
-                  {editing
-                    ? <textarea
+                    </label>
+                    <label className="admin-edit-field" style={{ animationDelay: '140ms' }}>
+                      <span className="admin-edit-label">
+                        Body
+                        <span className="admin-edit-count">{editFields.body.length} chars</span>
+                      </span>
+                      <textarea
+                        className="admin-edit-textarea"
                         value={editFields.body}
-                        rows={10}
+                        rows={12}
                         onChange={(e) => setEditFields((f) => ({ ...f, body: e.target.value }))}
                       />
-                    : <pre>{selected.body}</pre>
-                  }
-                </div>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="admin-message-card">
+                    <span>Subject</span>
+                    <h3>{selected.subject}</h3>
+                    <pre>{selected.body}</pre>
+                  </div>
+                )}
                 <div className="admin-check-row"><span>Admin check</span><p>{selected.ask}</p></div>
                 <div className="admin-actions-row">
                   {editing ? (

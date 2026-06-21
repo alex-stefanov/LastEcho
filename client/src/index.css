@@ -2249,6 +2249,153 @@ body {
   color: var(--admin-heading);
 }
 
+.admin-field-grid.editing {
+  grid-template-columns: 2fr 1fr 1fr;
+}
+
+/* --- Draft editor --------------------------------------------------------- */
+/* A deliberate "mode": the green-tinted selected surface + a left accent rule
+   signal active editing rather than a swapped-in form. Fields stagger in. */
+.admin-edit-form {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: 14px;
+  padding: 20px 22px 22px;
+  border: 1px solid var(--admin-line);
+  border-left: 2px solid var(--admin-accent-strong);
+  border-radius: 2px;
+  background: var(--admin-selected);
+}
+
+.admin-edit-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--admin-line-strong);
+}
+
+.admin-edit-pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--admin-accent-strong);
+  box-shadow: 0 0 0 0 var(--admin-accent-strong);
+  animation: admin-pip 2.2s ease-out infinite;
+}
+
+@keyframes admin-pip {
+  0% { box-shadow: 0 0 0 0 rgba(155, 215, 186, 0.5); }
+  70% { box-shadow: 0 0 0 7px rgba(155, 215, 186, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(155, 215, 186, 0); }
+}
+
+.admin-edit-title {
+  color: var(--admin-accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.admin-edit-meta {
+  margin-left: auto;
+  color: var(--admin-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+.admin-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: admin-edit-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes admin-edit-in {
+  to { opacity: 1; transform: none; }
+}
+
+.admin-edit-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--admin-accent-strong);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.admin-edit-count {
+  color: var(--admin-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.admin-edit-input,
+.admin-edit-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--admin-line-strong);
+  border-radius: 2px;
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.admin-edit-input {
+  font: 14px/1.5 var(--sans);
+}
+
+/* The body reads as composing a letter: warm Fraunces serif at correspondence
+   rhythm, distinct from the short sans metadata fields above it. */
+.admin-edit-textarea {
+  min-height: 240px;
+  font: 15px/1.75 var(--serif);
+  resize: vertical;
+}
+
+.admin-edit-input:focus,
+.admin-edit-textarea:focus {
+  outline: none;
+  border-color: var(--admin-accent-strong);
+  box-shadow: 0 0 0 3px rgba(155, 215, 186, 0.16);
+}
+
+:root[data-theme='light'] .admin-edit-input:focus,
+:root[data-theme='light'] .admin-edit-textarea:focus {
+  box-shadow: 0 0 0 3px rgba(40, 105, 79, 0.14);
+}
+
+.admin-edit-input::placeholder {
+  color: var(--admin-faint);
+}
+
+.admin-edit-hint {
+  color: var(--admin-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-edit-pip,
+  .admin-edit-field {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .admin-message-card pre {
   margin: 0;
   padding-top: 14px;

@@ -209,3 +209,12 @@ export async function runTriage(): Promise<TriageRunResult> {
   if (!res.ok) throw new Error(`API ${res.status}: failed to run triage sweep`);
   return res.json();
 }
+
+// Ping the health endpoint every 4 minutes to prevent Render's free-tier
+// instance from sleeping between requests. Returns a cleanup function.
+export function startKeepAlive(): () => void {
+  const INTERVAL_MS = 4 * 60 * 1000;
+  const ping = () => fetch(`${API_BASE}/api/health`).catch(() => {});
+  const id = setInterval(ping, INTERVAL_MS);
+  return () => clearInterval(id);
+}

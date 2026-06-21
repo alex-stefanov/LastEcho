@@ -23,7 +23,7 @@ import {
   type VitalityGroup,
   type YearData,
 } from './data/timeline';
-import { fetchOutreachStatus, type OutreachStatusSummary } from './data/api';
+import { fetchOutreachStatus, startKeepAlive, type OutreachStatusSummary } from './data/api';
 
 type Filters = Record<VitalityGroup, boolean>;
 const THEME_KEY = 'lastecho-theme';
@@ -74,6 +74,8 @@ export default function App() {
       .then(setOutreachStatus)
       .catch(() => {});
   }, []);
+
+  useEffect(() => startKeepAlive(), []);
 
   useEffect(() => {
     const onResize = () => setSize({ w: window.innerWidth, h: window.innerHeight });

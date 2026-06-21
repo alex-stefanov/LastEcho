@@ -9,6 +9,7 @@ export default function ThemeToggle({ theme, onToggle }: Props) {
   const isDark = theme === 'dark';
   return (
     <button
+      type="button"
       className="theme-toggle panel"
       onClick={onToggle}
       aria-pressed={!isDark}
