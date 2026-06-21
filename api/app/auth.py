@@ -8,24 +8,29 @@ client-side-only check, which could be bypassed from the browser console.
 
 Fail closed: if no admin password is configured, both login and every gated
 endpoint return 503 rather than silently allowing access.
+
+Tokens are short-lived and signed (see tokens.py): they carry their own expiry
+and are verified against the admin signing key, so a leaked token stops working
+on its own and is never compared by value (which would crash on a non-ASCII
+header — see secrets.compare_digest's ASCII-only restriction).
 """
 
 from __future__ import annotations
 
-import secrets
-
 from fastapi import Header, HTTPException
 
+from . import tokens
 from .config import settings
 
 
 def verify_admin(x_admin_token: str | None = Header(default=None)) -> None:
-    """FastAPI dependency: allow the request only if it carries a valid admin
-    token. Attach via `include_router(..., dependencies=[Depends(verify_admin)])`."""
+    """FastAPI dependency: allow the request only if it carries a valid,
+    unexpired admin token. Attach via
+    `include_router(..., dependencies=[Depends(verify_admin)])`."""
     if not settings.admin_configured:
         raise HTTPException(
             status_code=503,
             detail="Admin access is not configured. Set LASTECHO_ADMIN_PASSWORD.",
         )
-    if not x_admin_token or not secrets.compare_digest(x_admin_token, settings.admin_token):
+    if not tokens.verify(x_admin_token, settings.admin_token):
         raise HTTPException(status_code=401, detail="Invalid or missing admin token")
