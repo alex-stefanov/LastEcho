@@ -71,6 +71,15 @@ function mailtoFor(d: OutreachDraft): string {
   return `mailto:${d.institutionEmail}?${params.toString()}`;
 }
 
+// Defence-in-depth: institution URLs can originate from third-party ROR data.
+// The backend already restricts stored URLs to http(s), but never render an
+// href the component itself hasn't scheme-checked — React does not sanitize
+// href values, so an unexpected `javascript:`/`data:` URL would otherwise run.
+function safeUrl(url: string | null | undefined): string {
+  if (url && /^(https?:|mailto:)/i.test(url)) return url;
+  return '#';
+}
+
 function formatDate(iso?: string | null): string {
   if (!iso) return '—';
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(iso));
@@ -350,7 +359,7 @@ export default function AdminView() {
                 <div className="admin-detail-head"><h2>{selected.languageName}</h2></div>
                 <div className={`admin-field-grid ${editing ? 'editing' : ''}`}>
                   <div className="admin-field wide">
-                    <span>Institution</span><a href={selected.institutionUrl} target="_blank" rel="noreferrer">{selected.institutionName}</a>
+                    <span>Institution</span><a href={safeUrl(selected.institutionUrl)} target="_blank" rel="noreferrer">{selected.institutionName}</a>
                   </div>
                   {!editing && (
                     <div className="admin-field">
@@ -427,7 +436,7 @@ export default function AdminView() {
                         <>
                           {selected.institutionEmail
                             ? <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>
-                            : <a className="admin-action primary" href={selected.institutionContactUrl} target="_blank" rel="noreferrer">Contact page</a>
+                            : <a className="admin-action primary" href={safeUrl(selected.institutionContactUrl)} target="_blank" rel="noreferrer">Contact page</a>
                           }
                           {selected.institutionEmail && <a className="admin-action" href={mailtoFor(selected)}>Open email</a>}
                           <button className="admin-action" type="button" onClick={copyDraft}>{copied ? 'Copied' : 'Copy'}</button>

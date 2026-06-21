@@ -3,13 +3,15 @@
 //
 // The globe's extinction-risk layer is driven by the real, per-year snapshots
 // in ./timeline_by_year/{year}.json (2000–2050, ~3,300 languages each). Those
-// files are ~29 MB in total, so they are NOT bundled: Vite's import.meta.glob
-// gives one lazily-loaded, code-split chunk per year, fetched straight from the
-// client data folder on demand and cached by the browser.
+// files total ~99 MB, so they are NOT bundled: Vite's import.meta.glob gives one
+// lazily-loaded, code-split chunk per year, fetched straight from the client
+// data folder on demand and cached by the browser.
 //
 // We additionally cache the parsed result in memory so scrubbing back to a year
 // already visited is instant and never re-fetches — this is the "show a year"
-// gate: a year is only rendered once its snapshot has been loaded.
+// gate: a year is only rendered once its snapshot has been loaded. The in-memory
+// cache is LRU-bounded (see MAX_CACHED_YEARS) so playing through all 51 years
+// can't pin tens of MB of parsed objects in the tab on low-memory devices.
 // ---------------------------------------------------------------------------
 
 import metadata from './timeline_by_year/metadata.json';
@@ -67,25 +69,52 @@ for (const path in loaders) {
   if (m) byYear.set(Number(m[1]), loaders[path]);
 }
 
+// Bound the in-memory snapshot cache. Each year is ~2 MB of parsed objects;
+// keeping the most-recently-used handful covers scrubbing and playback while
+// preventing unbounded heap growth across all 51 years on a long session.
+const MAX_CACHED_YEARS = 8;
 const cache = new Map<number, YearData>();
+
+// Mark `year` as most-recently-used: re-insert it so it moves to the end of the
+// Map's insertion order (the first key is then the least-recently-used).
+function touch(year: number): void {
+  const value = cache.get(year);
+  if (value === undefined) return;
+  cache.delete(year);
+  cache.set(year, value);
+}
+
+function evictIfNeeded(): void {
+  while (cache.size > MAX_CACHED_YEARS) {
+    const oldest = cache.keys().next().value as number | undefined;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
 
 export function hasYear(year: number): boolean {
   return byYear.has(year);
 }
 
 export function getCachedYear(year: number): YearData | undefined {
-  return cache.get(year);
+  const hit = cache.get(year);
+  if (hit) touch(year); // reading counts as use, so it isn't evicted first
+  return hit;
 }
 
 // Fetch (or return cached) one year's snapshot. Resolving this is what grants a
 // year permission to be shown on the globe.
 export async function loadYear(year: number): Promise<YearData> {
   const hit = cache.get(year);
-  if (hit) return hit;
+  if (hit) {
+    touch(year);
+    return hit;
+  }
   const loader = byYear.get(year);
   if (!loader) throw new Error(`No timeline snapshot for ${year}`);
   const mod = await loader();
   cache.set(year, mod.default);
+  evictIfNeeded();
   return mod.default;
 }
 
