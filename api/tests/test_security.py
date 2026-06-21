@@ -22,7 +22,8 @@ def _admin_app(monkeypatch, *, configured: bool = True) -> FastAPI:
     fake = SimpleNamespace(
         admin_user="admin",
         admin_password="s3cret" if configured else None,
-        admin_token="tok-123",
+        admin_token="tok-123",  # used as the token signing key (see tokens.py)
+        admin_token_ttl_seconds=3600,
         admin_configured=configured,
     )
     monkeypatch.setattr(admin_auth, "settings", fake)
@@ -63,6 +64,29 @@ def test_admin_fails_closed_when_unconfigured(monkeypatch):
     # there is no client-only bypass.
     assert client.post("/api/admin/login", json={"user": "admin", "password": "x"}).status_code == 503
     assert client.get("/api/secret", headers={"X-Admin-Token": "tok-123"}).status_code == 503
+
+
+def test_login_with_non_ascii_credentials_is_401_not_500(monkeypatch):
+    """secrets.compare_digest raises on non-ASCII str — an unauthenticated client
+    must not be able to crash login (500) by sending a Unicode password."""
+    client = TestClient(_admin_app(monkeypatch))
+    res = client.post("/api/admin/login", json={"user": "admin", "password": "pässwört"})
+    assert res.status_code == 401  # rejected, not a 500
+
+
+def test_token_expires(monkeypatch):
+    """An expired token no longer unlocks the gated route."""
+    from app import tokens
+
+    key = "tok-123"
+    fresh = tokens.issue(key, ttl_seconds=3600)
+    assert tokens.verify(fresh, key) is True
+
+    expired = tokens.issue(key, ttl_seconds=-1)  # already past its deadline
+    assert tokens.verify(expired, key) is False
+    # Tampered signature / wrong key are rejected too.
+    assert tokens.verify(fresh, "other-key") is False
+    assert tokens.verify(fresh[:-1] + ("x" if fresh[-1] != "x" else "y"), key) is False
 
 
 # --- SMTP recipient validation (header injection) ---------------------------
@@ -142,3 +166,52 @@ def test_set_status_if_is_atomic(tmp_path):
     assert row["status"] == "approved"
     assert row["sent_at"] is None
     conn.close()
+
+
+# --- recipient editing (S4: empty string is an explicit clear) --------------
+
+def test_update_draft_empty_email_clears_to_null():
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    store_db.create_tables(conn)
+    draft_id = store_db.insert_draft(
+        conn, language_id=1, institution_id="i", tier="local", subject="s", body="b",
+        ask="a", language_name="L", institution_name="I", institution_url="",
+        institution_contact_url="", institution_email="x@y.com",
+    )
+    # Empty string clears the recipient to NULL rather than storing "".
+    store_db.update_draft(conn, draft_id, institution_email="")
+    assert store_db.get_draft(conn, draft_id)["institution_email"] is None
+
+    # A real address is stored as-is; None leaves the field untouched.
+    store_db.update_draft(conn, draft_id, institution_email="new@y.com")
+    store_db.update_draft(conn, draft_id, subject="changed")
+    row = store_db.get_draft(conn, draft_id)
+    assert row["institution_email"] == "new@y.com"
+    assert row["subject"] == "changed"
+    conn.close()
+
+
+# --- response hardening (S2 docs gating, S5 security headers) ----------------
+
+def test_security_headers_and_docs_toggle(monkeypatch):
+    from app import config, main
+
+    # The "/" service-info route needs no DataStore, so these requests work
+    # without running the app lifespan (which would load data + warm geocoding).
+
+    # expose_docs=True -> docs reachable, no HSTS (assumed local HTTP).
+    monkeypatch.setattr(main, "settings", config.Settings())
+    open_client = TestClient(main.create_app())
+    r = open_client.get("/")
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["X-Frame-Options"] == "DENY"
+    assert "Strict-Transport-Security" not in r.headers
+    assert open_client.get("/openapi.json").status_code == 200
+
+    # expose_docs=False -> docs hidden (404) and HSTS present.
+    monkeypatch.setenv("LASTECHO_EXPOSE_DOCS", "false")
+    monkeypatch.setattr(main, "settings", config.Settings())
+    closed_client = TestClient(main.create_app())
+    assert closed_client.get("/openapi.json").status_code == 404
+    assert "Strict-Transport-Security" in closed_client.get("/").headers
