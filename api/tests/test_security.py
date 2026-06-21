@@ -77,6 +77,47 @@ def test_send_rejects_injection_addresses(bad):
         mailer.send(to=bad, subject="hi", body="body", settings=settings)
 
 
+# --- Postmark HTTP API transport --------------------------------------------
+
+def _postmark_settings():
+    # Token set, no SMTP host: the API path must be chosen.
+    return SimpleNamespace(postmark_token="tok-123", smtp_from="from@test", smtp_host=None)
+
+
+def test_is_configured_true_with_postmark_token_only():
+    assert mailer.is_configured(_postmark_settings())
+
+
+def test_send_uses_postmark_api_when_token_set(monkeypatch):
+    captured = {}
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"ErrorCode": 0, "Message": "OK"}'
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["token"] = req.headers.get("X-postmark-server-token")
+        return _Resp()
+
+    monkeypatch.setattr(mailer.urllib.request, "urlopen", fake_urlopen)
+    mailer.send(to="friend@example.com", subject="hi", body="body", settings=_postmark_settings())
+    assert captured["url"] == mailer._POSTMARK_API_URL
+    assert captured["token"] == "tok-123"
+
+
+def test_send_raises_on_postmark_error_code(monkeypatch):
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"ErrorCode": 406, "Message": "Inactive recipient"}'
+
+    monkeypatch.setattr(mailer.urllib.request, "urlopen", lambda req, timeout=None: _Resp())
+    with pytest.raises(RuntimeError, match="Inactive recipient"):
+        mailer.send(to="friend@example.com", subject="hi", body="body", settings=_postmark_settings())
+
+
 # --- atomic send claim (no double send) -------------------------------------
 
 def test_set_status_if_is_atomic(tmp_path):

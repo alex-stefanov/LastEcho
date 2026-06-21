@@ -125,7 +125,7 @@ def send(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> OutreachD
     if not mailer.is_configured(settings):
         raise HTTPException(
             status_code=503,
-            detail="Email sending is not configured. Set LASTECHO_SMTP_HOST and LASTECHO_SMTP_FROM (see .env.example).",
+            detail="Email sending is not configured. Set LASTECHO_POSTMARK_TOKEN and LASTECHO_SMTP_FROM (or the LASTECHO_SMTP_* SMTP settings).",
         )
     # Claim the draft atomically before delivering: if a concurrent request
     # already moved it out of 'approved', we lose the race and stop here, so the

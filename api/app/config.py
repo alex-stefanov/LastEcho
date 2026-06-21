@@ -119,7 +119,16 @@ class Settings:
         default_factory=lambda: int(os.environ.get("LASTECHO_ROR_CACHE_TTL_DAYS", "30"))
     )
 
-    # --- SMTP (real email sending) ---
+    # --- Email sending ---
+    # Preferred transport: Postmark's HTTP API (port 443). Many hosts (incl.
+    # Render's free tier) block outbound SMTP ports, which makes the SMTP path
+    # below hang and fail; the HTTP API is not affected. When this token is set,
+    # mailer.send() uses the API and ignores the SMTP_* settings (smtp_from is
+    # still used as the From address).
+    postmark_token: str | None = field(
+        default_factory=lambda: os.environ.get("LASTECHO_POSTMARK_TOKEN") or None
+    )
+    # --- SMTP (fallback transport) ---
     # Unset host/from -> mailer.is_configured() is False and the send endpoint
     # returns 503 instead of silently pretending to send. Mark-sent (manual
     # record) still works without any SMTP config.

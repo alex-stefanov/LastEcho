@@ -7,16 +7,22 @@ silently no-op — an admin must never believe an email went out when it didn't.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import smtplib
 import ssl
 import time
+import urllib.error
+import urllib.request
 from email.message import EmailMessage
 
 from .config import Settings
 
 logger = logging.getLogger("lastecho")
+
+_POSTMARK_API_URL = "https://api.postmarkapp.com/email"
+_HTTP_TIMEOUT = 15
 
 # Transient failures (connection drop, timeout, provider throttling) are worth
 # one retry; auth/permanent failures are not, so they're excluded. Kept tight so
@@ -33,8 +39,11 @@ _ADDRESS_RE = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
 
 
 def is_configured(settings: Settings) -> bool:
-    """True once enough is set to actually deliver: a host and a From address."""
-    return bool(settings.smtp_host and settings.smtp_from)
+    """True once enough is set to actually deliver. Either transport works: the
+    Postmark HTTP API (token + From) or SMTP (host + From)."""
+    has_from = bool(settings.smtp_from)
+    has_postmark = bool(getattr(settings, "postmark_token", None))
+    return has_from and (has_postmark or bool(settings.smtp_host))
 
 
 def is_valid_address(to: str) -> bool:
@@ -46,17 +55,59 @@ def _require_valid_address(to: str) -> None:
         raise ValueError(f"Invalid recipient address: {to!r}")
 
 
+def _send_via_postmark_api(*, to: str, subject: str, body: str, settings: Settings) -> None:
+    """Deliver one plain-text email through Postmark's HTTP API (port 443).
+
+    Used in preference to SMTP because hosts like Render's free tier block
+    outbound SMTP ports, which makes the SMTP path hang. Raises on any non-2xx
+    response or a non-zero Postmark ErrorCode so the caller leaves it un-sent."""
+    payload = json.dumps(
+        {
+            "From": settings.smtp_from,
+            "To": to,
+            "Subject": subject,
+            "TextBody": body,
+            "MessageStream": "outbound",
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        _POSTMARK_API_URL,
+        data=payload,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Postmark-Server-Token": settings.postmark_token,
+        },
+        method="POST",
+    )
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:  # 4xx/5xx — body carries Postmark's reason
+        detail = exc.read().decode("utf-8", "replace")
+        raise RuntimeError(f"Postmark API error {exc.code}: {detail}") from exc
+    if data.get("ErrorCode", 0) != 0:
+        raise RuntimeError(f"Postmark rejected the message: {data.get('Message')}")
+    logger.info("Postmark API send ok in %.1fs", time.monotonic() - started)
+
+
 def send(*, to: str, subject: str, body: str, settings: Settings) -> None:
-    """Deliver one plain-text email. Retries transient connection failures with
-    backoff; raises on the final failure (or any non-retryable error) so the
-    caller can surface it and leave the draft un-sent."""
+    """Deliver one plain-text email. Prefers the Postmark HTTP API when a token
+    is configured; otherwise falls back to SMTP (retrying transient connection
+    failures with backoff). Raises on final failure so the caller can surface it
+    and leave the draft un-sent."""
     if not is_configured(settings):
-        raise RuntimeError("SMTP is not configured")
+        raise RuntimeError("Email sending is not configured")
 
     _require_valid_address(to)
     # Strip CR/LF from the subject too — a model-generated subject must never be
     # able to inject extra headers.
     safe_subject = subject.replace("\r", " ").replace("\n", " ")
+
+    if getattr(settings, "postmark_token", None):
+        _send_via_postmark_api(to=to, subject=safe_subject, body=body, settings=settings)
+        return
 
     msg = EmailMessage()
     msg["From"] = settings.smtp_from

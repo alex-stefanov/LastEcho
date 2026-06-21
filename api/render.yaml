@@ -15,18 +15,13 @@ services:
         sync: false
       - key: LASTECHO_CORS_ORIGINS
         sync: false
-      - key: LASTECHO_SMTP_HOST
-        value: smtp.postmarkapp.com
-      - key: LASTECHO_SMTP_PORT
-        value: "587"
-      - key: LASTECHO_SMTP_USER
-        sync: false
-      - key: LASTECHO_SMTP_PASSWORD
+      # Render's free tier blocks outbound SMTP ports, so we deliver via
+      # Postmark's HTTP API instead. Set LASTECHO_POSTMARK_TOKEN to your
+      # Postmark Server API Token (Servers > LastEcho > API Tokens).
+      - key: LASTECHO_POSTMARK_TOKEN
         sync: false
       - key: LASTECHO_SMTP_FROM
         value: sg58912333@edu.mon.bg
-      - key: LASTECHO_SMTP_USE_TLS
-        value: "true"
       # Draft the outreach queue once per boot. The dataset only changes ~yearly,
       # and on the free tier the SQLite DB is ephemeral (wiped on every cold start
       # / redeploy), so re-running on boot simply self-heals the queue. Keep
