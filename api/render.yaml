@@ -27,3 +27,10 @@ services:
         value: sg58912333@edu.mon.bg
       - key: LASTECHO_SMTP_USE_TLS
         value: "true"
+      # Draft the outreach queue once per boot. The dataset only changes ~yearly,
+      # and on the free tier the SQLite DB is ephemeral (wiped on every cold start
+      # / redeploy), so re-running on boot simply self-heals the queue. Keep
+      # ANTHROPIC_API_KEY unset so drafting uses the free templated path — with it
+      # set, every cold start would re-spend on the model for the top-N languages.
+      - key: LASTECHO_RUN_SWEEP_ON_STARTUP
+        value: "true"
