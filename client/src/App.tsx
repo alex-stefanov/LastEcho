@@ -115,6 +115,31 @@ export default function App() {
     [outreachStatus],
   );
 
+  const openLanguage = (iso: string) => {
+    setSelectedIso(iso);
+    setSelectedClusterIsos(null);
+  };
+
+  const openCluster = (isos: string[]) => {
+    setSelectedClusterIsos(isos);
+    setSelectedIso(null);
+  };
+
+  const openLanguageFromCluster = (iso: string) => {
+    setSelectedIso(iso);
+  };
+
+  const backToClusterList = () => {
+    setSelectedIso(null);
+  };
+
+  const closeLanguageDetails = () => {
+    setSelectedIso(null);
+    setSelectedClusterIsos(null);
+  };
+
+  const showClusterBack = view === 'globe' && selectedClusterMembers !== null;
+
   return (
     <div className="app">
       {view === 'globe' && (
@@ -128,8 +153,8 @@ export default function App() {
               autoRotate={autoRotate}
               theme={theme}
               onUserInteract={() => setAutoRotate(false)}
-              onSelect={(iso) => { setSelectedIso(iso); setSelectedClusterIsos(null); }}
-              onClusterSelect={(isos) => { setSelectedClusterIsos(isos); setSelectedIso(null); }}
+              onSelect={openLanguage}
+              onClusterSelect={openCluster}
             />
           </div>
           <div className="vignette" />
@@ -163,24 +188,17 @@ export default function App() {
               weights={triageWeights}
               onWeightsChange={setTriageWeights}
               selectedIso={selectedIso}
-              onSelect={(iso) => { setSelectedIso(iso); setSelectedClusterIsos(null); }}
+              onSelect={openLanguage}
             />
           )}
 
           <RotateControl on={autoRotate} onToggle={() => setAutoRotate((v) => !v)} />
 
-          {selectedYearLang && (
-            <YearLangCard
-              lang={selectedYearLang}
-              year={year}
-              onClose={() => setSelectedIso(null)}
-            />
-          )}
 
           {selectedClusterMembers && !selectedYearLang && (
             <ClusterCard
               members={selectedClusterMembers}
-              onSelect={(iso) => { setSelectedIso(iso); setSelectedClusterIsos(null); }}
+              onSelect={openLanguageFromCluster}
               onClose={() => setSelectedClusterIsos(null)}
             />
           )}
@@ -192,16 +210,22 @@ export default function App() {
           year={year}
           yearData={yearData}
           selectedIso={selectedIso}
-          onSelect={(iso) => setSelectedIso(iso)}
+          onSelect={openLanguage}
         />
       )}
 
       {selectedYearLang && (
-        <YearLangCard lang={selectedYearLang} year={year} onClose={() => setSelectedIso(null)} />
+        <YearLangCard
+          lang={selectedYearLang}
+          year={year}
+          onClose={closeLanguageDetails}
+          onBackToList={showClusterBack ? backToClusterList : undefined}
+        />
       )}
 
       <Wordmark />
       <Nav view={view} onChange={setView} />
+      <a className="about-link panel" href="/about">About us</a>
       <ThemeToggle theme={theme} onToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))} />
 
       <Timeline year={year} setYear={setYear} playing={playing} setPlaying={setPlaying} ready={ready} />
