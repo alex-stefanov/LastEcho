@@ -137,7 +137,10 @@ def send(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> OutreachD
     except Exception as exc:  # delivery failed — release the claim, leave it un-sent
         store_db.revert_send_claim(conn, draft_id)
         logger.error("send failed for draft %s: %s", draft_id, exc)
-        raise HTTPException(status_code=502, detail="Email delivery failed")
+        # This endpoint is admin-only, so surfacing the underlying SMTP error is
+        # safe and saves a trip to the server logs when diagnosing a rejection
+        # (bad credentials, unverified sender, recipient not allowed, etc.).
+        raise HTTPException(status_code=502, detail=f"Email delivery failed: {exc}")
     return _row_to_draft(_get_or_404(conn, draft_id))
 
 
