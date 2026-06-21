@@ -7,7 +7,6 @@ import {
   hasAdminToken,
   loginAdmin,
   markReplied,
-  markSent,
   rejectDraft,
   runTriage,
   sendDraft,
@@ -18,7 +17,7 @@ import {
 } from './data/api';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
 
-type AdminViewFilter = 'review' | 'ready' | 'active' | 'closed';
+type AdminViewFilter = 'review' | 'active' | 'closed';
 type AdminSort = 'priority' | 'oldest' | 'newest';
 
 const TIER_RANK: Record<OutreachTier, number> = { global: 3, continental: 2, local: 1 };
@@ -46,9 +45,10 @@ const THEME_KEY = 'lastecho-theme';
 
 type StatusTone = 'pending' | 'approved' | 'sent' | 'replied' | 'rejected' | 'no_reply';
 
+// 'approved' lives in Review too: a draft only reaches 'approved' transiently
+// while being sent, so if delivery fails it stays visible here to retry.
 const FILTERS: { key: AdminViewFilter; label: string; statuses: DraftStatus[] }[] = [
-  { key: 'review', label: 'Review', statuses: ['pending_review'] },
-  { key: 'ready', label: 'Ready', statuses: ['approved'] },
+  { key: 'review', label: 'Review', statuses: ['pending_review', 'approved'] },
   { key: 'active', label: 'Sent', statuses: ['sent', 'no_reply'] },
   { key: 'closed', label: 'Closed', statuses: ['replied', 'rejected'] },
 ];
@@ -64,11 +64,6 @@ const STATUS_LABEL: Record<DraftStatus, string> = {
 
 function toneFor(status: DraftStatus): StatusTone {
   return status === 'pending_review' ? 'pending' : status;
-}
-
-function mailtoFor(d: OutreachDraft): string {
-  const params = new URLSearchParams({ subject: d.subject, body: d.body });
-  return `mailto:${d.institutionEmail}?${params.toString()}`;
 }
 
 // Defence-in-depth: institution URLs can originate from third-party ROR data.
@@ -154,10 +149,8 @@ export default function AdminView() {
   const [sortMode, setSortMode] = useState<AdminSort>('priority');
   const [drafts, setDrafts] = useState<OutreachDraft[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
   const [editFields, setEditFields] = useState({ subject: '', body: '', institutionEmail: '' });
   const [theme, setTheme] = useState<Theme>(() => localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark');
   const [authenticated, setAuthenticated] = useState(() => hasAdminToken());
@@ -197,64 +190,27 @@ export default function AdminView() {
   );
 
   const selected = drafts.find((draft) => draft.id === selectedId) ?? visibleDrafts[0] ?? null;
-  const canEdit = selected?.status === 'pending_review' || selected?.status === 'approved';
+  // A draft awaiting send (pending or transiently approved) is shown as an
+  // editable form by default — the admin fills in the email, tweaks the letter
+  // if needed, and sends. Everything else is read-only.
+  const isReview = selected?.status === 'pending_review' || selected?.status === 'approved';
 
-  // A draft can't be sent without a recipient, so if the selected one is missing
-  // an email, drop the admin straight into the edit form (with the email field
-  // ready) instead of making them hunt for the Edit button. Otherwise reset to
-  // read view when switching drafts.
+  // Load the selected draft's content into the form whenever the selection
+  // changes, so the inputs always reflect the draft on screen.
   useEffect(() => {
-    if (selected && !selected.institutionEmail && (selected.status === 'pending_review' || selected.status === 'approved')) {
-      setEditFields({ subject: selected.subject, body: selected.body, institutionEmail: '' });
-      setEditing(true);
-    } else {
-      setEditing(false);
+    if (selected && isReview) {
+      setEditFields({
+        subject: selected.subject,
+        body: selected.body,
+        institutionEmail: selected.institutionEmail ?? '',
+      });
     }
   }, [selected?.id]);
 
-  const startEdit = () => {
-    if (!selected) return;
-    setEditFields({
-      subject: selected.subject,
-      body: selected.body,
-      institutionEmail: selected.institutionEmail ?? '',
-    });
-    setEditing(true);
-  };
-
-  const saveEdit = async () => {
-    if (!selected) return;
-    // A recipient is mandatory — the draft is unsendable without one, so block
-    // saving an empty email rather than letting it slip through to a dead end.
-    if (!editFields.institutionEmail.trim()) {
-      setError('A recipient email is required.');
-      return;
-    }
-    setError(null);
-    setBusy(true);
-    try {
-      await updateDraft(selected.id, editFields);
-      const rows = await fetchOutreachQueue();
-      setDrafts(rows);
-      setEditing(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save changes');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const stats = useMemo(() => ({
-    review: drafts.filter((draft) => draft.status === 'pending_review').length,
-    ready: drafts.filter((draft) => draft.status === 'approved').length,
+    review: drafts.filter((draft) => draft.status === 'pending_review' || draft.status === 'approved').length,
     sent: drafts.filter((draft) => draft.status === 'sent' || draft.status === 'no_reply').length,
   }), [drafts]);
-
-  // The Ready tab auto-hides when empty (emailable drafts now skip straight to
-  // Sent). If we're sitting on it when the last draft leaves, fall back to Review.
-  useEffect(() => {
-    if (filter === 'ready' && stats.ready === 0) setFilter('review');
-  }, [filter, stats.ready]);
 
   const act = async (id: number, apiCall: (id: number) => Promise<OutreachDraft | null>) => {
     setError(null);
@@ -264,8 +220,14 @@ export default function AdminView() {
       const rows = await fetchOutreachQueue();
       setDrafts(rows);
       if (!rows.some((r) => r.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
+      // Background sweep on the server (returns immediately); re-fetch shortly
+      // after to pick up anything it drafted. Fire-and-forget.
       runTriage()
-        .then((res) => (res.drafted > 0 ? fetchOutreachQueue().then(setDrafts) : null))
+        .then(() => {
+          setTimeout(() => {
+            fetchOutreachQueue().then(setDrafts).catch(() => {});
+          }, 4000);
+        })
         .catch(() => {});
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Action failed');
@@ -274,15 +236,22 @@ export default function AdminView() {
     }
   };
 
-  // Approve a draft and, when it has an email address, send it immediately so it
-  // lands straight in Sent — skipping the manual Ready step. Drafts with no email
-  // can't be transmitted, so they stay in Ready for the contact-page path.
-  const approveAndSend = async (draft: OutreachDraft) => {
+  // The one action for a review draft: save the admin's edits (recipient,
+  // subject, body), approve, and deliver it — landing it straight in Sent.
+  // A recipient is mandatory, so an empty email blocks before anything is sent.
+  const sendNow = async () => {
+    if (!selected) return;
+    const email = editFields.institutionEmail.trim();
+    if (!email) {
+      setError('A recipient email is required.');
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
-      await approveDraft(draft.id);
-      if (draft.institutionEmail) await sendDraft(draft.id);
+      await updateDraft(selected.id, { ...editFields, institutionEmail: email });
+      if (selected.status === 'pending_review') await approveDraft(selected.id);
+      await sendDraft(selected.id);
       const rows = await fetchOutreachQueue();
       setDrafts(rows);
       if (!rows.some((r) => r.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
@@ -298,18 +267,13 @@ export default function AdminView() {
         })
         .catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Action failed');
+      // Send may have failed after approve — refresh so the draft reflects its
+      // real status and stays in Review for a retry.
+      fetchOutreachQueue().then(setDrafts).catch(() => {});
+      setError(e instanceof Error ? e.message : 'Failed to send');
     } finally {
       setBusy(false);
     }
-  };
-
-  const copyDraft = () => {
-    if (!selected || !navigator.clipboard) return;
-    navigator.clipboard.writeText(`${selected.subject}\n\n${selected.body}`).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    });
   };
 
   const logout = () => {
@@ -338,13 +302,12 @@ export default function AdminView() {
 
         <section className="admin-metrics" aria-label="Admin overview">
           <article className="admin-metric-card"><span>Review</span><strong>{stats.review}</strong></article>
-          <article className="admin-metric-card"><span>Ready</span><strong>{stats.ready}</strong></article>
           <article className="admin-metric-card"><span>Sent</span><strong>{stats.sent}</strong></article>
         </section>
 
         <div className="admin-controls">
           <nav className="admin-tabs" aria-label="Outreach filters">
-            {FILTERS.filter((item) => item.key !== 'ready' || stats.ready > 0).map((item) => (
+            {FILTERS.map((item) => (
               <button
                 key={item.key}
                 className={`admin-tab ${filter === item.key ? 'active' : ''}`}
@@ -405,26 +368,21 @@ export default function AdminView() {
             {selected && (
               <article className="admin-panel-sheet">
                 <div className="admin-detail-head"><h2>{selected.languageName}</h2></div>
-                <div className={`admin-field-grid ${editing ? 'editing' : ''}`}>
+                <div className="admin-field-grid">
                   <div className="admin-field wide">
                     <span>Institution</span><a href={safeUrl(selected.institutionUrl)} target="_blank" rel="noreferrer">{selected.institutionName}</a>
                   </div>
-                  {!editing && (
+                  {!isReview && (
                     <div className="admin-field">
                       <span>Contact</span>
-                      <strong>{selected.institutionEmail ?? 'Contact page'}</strong>
+                      <strong>{selected.institutionEmail ?? '—'}</strong>
                     </div>
                   )}
                   <div className="admin-field"><span>Status</span><strong>{STATUS_LABEL[selected.status]}</strong></div>
                   <div className="admin-field"><span>Created</span><strong>{formatDate(selected.createdAt)}</strong></div>
                 </div>
-                {editing ? (
+                {isReview ? (
                   <div className="admin-edit-form">
-                    <div className="admin-edit-banner">
-                      <span className="admin-edit-pip" aria-hidden="true" />
-                      <span className="admin-edit-title">Editing draft</span>
-                      <span className="admin-edit-meta">Unsaved changes</span>
-                    </div>
                     <label className="admin-edit-field" style={{ animationDelay: '40ms' }}>
                       <span className="admin-edit-label">Recipient</span>
                       <input
@@ -466,31 +424,10 @@ export default function AdminView() {
                 )}
                 <div className="admin-check-row"><span>Admin check</span><p>{selected.ask}</p></div>
                 <div className="admin-actions-row">
-                  {editing ? (
+                  {isReview && (
                     <>
-                      <button className="admin-action primary" type="button" disabled={busy} onClick={saveEdit}>{busy ? 'Saving…' : 'Save changes'}</button>
-                      <button className="admin-action" type="button" disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
-                    </>
-                  ) : (
-                    <>
-                      {canEdit && <button className="admin-action" type="button" disabled={busy} onClick={startEdit}>Edit</button>}
-                      {selected.status === 'pending_review' && (
-                        <>
-                          <button className="admin-action primary" type="button" disabled={busy} onClick={() => approveAndSend(selected)}>{busy ? 'Sending…' : selected.institutionEmail ? 'Approve & send' : 'Approve'}</button>
-                          <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, rejectDraft)}>Reject</button>
-                        </>
-                      )}
-                      {selected.status === 'approved' && (
-                        <>
-                          {selected.institutionEmail
-                            ? <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>
-                            : <a className="admin-action primary" href={safeUrl(selected.institutionContactUrl)} target="_blank" rel="noreferrer">Contact page</a>
-                          }
-                          {selected.institutionEmail && <a className="admin-action" href={mailtoFor(selected)}>Open email</a>}
-                          <button className="admin-action" type="button" onClick={copyDraft}>{copied ? 'Copied' : 'Copy'}</button>
-                          <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, markSent)}>Mark sent</button>
-                        </>
-                      )}
+                      <button className="admin-action primary" type="button" disabled={busy} onClick={sendNow}>{busy ? 'Sending…' : 'Send'}</button>
+                      <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, rejectDraft)}>Reject</button>
                     </>
                   )}
                   {selected.status === 'sent' && (
