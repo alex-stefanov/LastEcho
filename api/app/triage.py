@@ -10,9 +10,18 @@ starts a language's *first* rung, once.
 from __future__ import annotations
 
 import sqlite3
+import threading
 
 from . import matching, outreach, store_db
 from .schemas import InstitutionsFile, Language, Organization, TriageRunResult
+
+# Serializes sweeps within the process. The "has this language been contacted?"
+# check is read-then-write, so two concurrent sweeps (the startup background
+# thread + an admin POST /api/triage/run, or two admin clicks) could each pass
+# the check before either inserts — producing duplicate first-rung drafts and
+# duplicate paid Anthropic calls. A non-blocking acquire means a second
+# concurrent sweep returns immediately as a no-op rather than piling up.
+_sweep_lock = threading.Lock()
 
 
 def run_sweep(
@@ -33,45 +42,51 @@ def run_sweep(
     you handle a draft (approve/send, reject) its slot is filled by the next
     most-urgent untouched language on the following run. This makes the sweep a
     self-refilling queue rather than a one-time top-N seed."""
-    pending = len(store_db.list_drafts(conn, "pending_review"))
-    need = top_n - pending
-    if need <= 0:
+    if not _sweep_lock.acquire(blocking=False):
+        # Another sweep is already running — don't duplicate its work.
         return TriageRunResult(drafted=0, skipped=0, escalated=0)
+    try:
+        pending = len(store_db.list_drafts(conn, "pending_review"))
+        need = top_n - pending
+        if need <= 0:
+            return TriageRunResult(drafted=0, skipped=0, escalated=0)
 
-    drafted = 0
-    skipped = 0
-    for language in sorted(languages, key=lambda l: l.rank):
-        if drafted >= need:
-            break
-        if store_db.latest_draft_for_language(conn, language.id) is not None:
-            continue  # already contacted — never re-drafted (tracks who we've emailed)
+        drafted = 0
+        skipped = 0
+        for language in sorted(languages, key=lambda l: l.rank):
+            if drafted >= need:
+                break
+            if store_db.latest_draft_for_language(conn, language.id) is not None:
+                continue  # already contacted — never re-drafted (tracks who we've emailed)
 
-        ladder = matching.build_ladder(
-            conn, institutions_file, language,
-            ror_cache_ttl_days=ror_cache_ttl_days, organizations=organizations,
-        )
-        if not ladder:
-            skipped += 1
-            continue
-        first = ladder[0]
-        draft = outreach.draft(language, first.institution, first.tier, api_key=anthropic_api_key)
-        store_db.insert_draft(
-            conn,
-            language_id=language.id,
-            institution_id=first.institution.id,
-            tier=first.tier,
-            subject=draft["subject"],
-            body=draft["body"],
-            ask=draft["ask"],
-            language_name=language.name,
-            institution_name=first.institution.name,
-            institution_url=first.institution.url,
-            institution_contact_url=first.institution.contactUrl,
-            institution_email=first.institution.email,
-        )
-        drafted += 1
+            ladder = matching.build_ladder(
+                conn, institutions_file, language,
+                ror_cache_ttl_days=ror_cache_ttl_days, organizations=organizations,
+            )
+            if not ladder:
+                skipped += 1
+                continue
+            first = ladder[0]
+            draft = outreach.draft(language, first.institution, first.tier, api_key=anthropic_api_key)
+            store_db.insert_draft(
+                conn,
+                language_id=language.id,
+                institution_id=first.institution.id,
+                tier=first.tier,
+                subject=draft["subject"],
+                body=draft["body"],
+                ask=draft["ask"],
+                language_name=language.name,
+                institution_name=first.institution.name,
+                institution_url=first.institution.url,
+                institution_contact_url=first.institution.contactUrl,
+                institution_email=first.institution.email,
+            )
+            drafted += 1
 
-    return TriageRunResult(drafted=drafted, skipped=skipped, escalated=0)
+        return TriageRunResult(drafted=drafted, skipped=skipped, escalated=0)
+    finally:
+        _sweep_lock.release()
 
 
 def escalate(
