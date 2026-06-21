@@ -7,6 +7,8 @@ primary_region = "fra"
 
 [env]
 PORT = "8000"
+# Hide /docs, /redoc, /openapi.json in production and enable HSTS (see main.py).
+LASTECHO_EXPOSE_DOCS = "false"
 
 [[mounts]]
 source = "lastecho_data"

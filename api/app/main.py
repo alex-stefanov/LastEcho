@@ -21,7 +21,7 @@ from . import store_db, triage
 from .auth import verify_admin
 from .config import settings
 from .data import DataStore
-from .ratelimit import rate_limit
+from .ratelimit import login_rate_limit, rate_limit
 from .routers import admin_auth, languages, outreach_queue, outreach_status
 from .routers import triage as triage_router
 
@@ -61,6 +61,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.store = store
     _STORE = store
 
+    # Warm reverse_geocoder's KD-tree now, off the request path. The first
+    # country_for() call lazily loads its dataset and builds the tree (a
+    # multi-second cost); doing it here means no user request eats that spike
+    # after a cold start. (Loading organizations above usually warms it too, but
+    # this is unconditional and cheap to repeat.)
+    try:
+        from . import national_lookup
+        national_lookup.country_for(0.0, 0.0)
+    except Exception:  # warming is best-effort — never block startup on it
+        logger.exception("reverse_geocoder warm-up failed (non-fatal)")
+
     # Ensure the schema exists so per-request connections (see dependencies.get_db)
     # find the tables. This connection is kept only for shutdown bookkeeping.
     conn = store_db.connect(settings.db_path)
@@ -78,7 +89,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.title, version=settings.version, lifespan=lifespan)
+    # Disable the docs/schema endpoints in production (expose_docs=False) so the
+    # admin/triage surface isn't published to anonymous users.
+    docs_kwargs = (
+        {}
+        if settings.expose_docs
+        else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    )
+    app = FastAPI(title=settings.title, version=settings.version, lifespan=lifespan, **docs_kwargs)
 
     app.add_middleware(
         CORSMiddleware,
@@ -87,10 +105,26 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        """S5: baseline security response headers. HSTS is only meaningful over
+        HTTPS, so it's emitted in production (when docs are disabled) and skipped
+        for local HTTP development."""
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        if not settings.expose_docs:
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
+        return response
+
     # Public, read-only — rate limited.
     app.include_router(languages.router, dependencies=[Depends(rate_limit)])
     app.include_router(outreach_status.router, dependencies=[Depends(rate_limit)])
-    app.include_router(admin_auth.router, dependencies=[Depends(rate_limit)])
+    # Login gets the tighter login limiter (password-guessing budget).
+    app.include_router(admin_auth.router, dependencies=[Depends(login_rate_limit)])
     # Admin + triage — rate limited and behind the admin token.
     app.include_router(outreach_queue.router, dependencies=[Depends(rate_limit), Depends(verify_admin)])
     app.include_router(triage_router.router, dependencies=[Depends(rate_limit), Depends(verify_admin)])

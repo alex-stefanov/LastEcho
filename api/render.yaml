@@ -29,3 +29,7 @@ services:
       # set, every cold start would re-spend on the model for the top-N languages.
       - key: LASTECHO_RUN_SWEEP_ON_STARTUP
         value: "true"
+      # Don't publish /docs, /redoc, /openapi.json (the admin/triage surface) to
+      # anonymous users in production. Also enables HSTS (see main.py).
+      - key: LASTECHO_EXPOSE_DOCS
+        value: "false"

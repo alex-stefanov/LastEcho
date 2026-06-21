@@ -159,23 +159,42 @@ class Settings:
     # enable admin: POST /api/admin/login exchanges user+password for the token,
     # which the client then sends as the X-Admin-Token header. With no password
     # set, login and every admin endpoint fail closed (503) — there is no
-    # client-side-only gate. The token defaults to a fresh random value per
-    # process; set LASTECHO_ADMIN_TOKEN to keep sessions stable across restarts.
+    # client-side-only gate.
     admin_user: str = field(
         default_factory=lambda: os.environ.get("LASTECHO_ADMIN_USER", "admin")
     )
     admin_password: str | None = field(
         default_factory=lambda: os.environ.get("LASTECHO_ADMIN_PASSWORD") or None
     )
+    # Signing key for the short-lived session tokens (see tokens.py) — NOT handed
+    # to the client. Defaults to a fresh random value per process: leaving
+    # LASTECHO_ADMIN_TOKEN unset means a restart rotates the key and revokes every
+    # outstanding token. Set it only if you need tokens to survive restarts.
     admin_token: str = field(
         default_factory=lambda: os.environ.get("LASTECHO_ADMIN_TOKEN")
         or secrets.token_urlsafe(32)
+    )
+    # How long an issued admin token stays valid (default 8h). After this the
+    # client must log in again; a leaked token also stops working on its own.
+    admin_token_ttl_seconds: int = field(
+        default_factory=lambda: int(os.environ.get("LASTECHO_ADMIN_TOKEN_TTL_SECONDS", "28800"))
     )
 
     # --- operational limits ---------------------------------------------------
     # Per-IP request cap (sliding 60s window) applied to the API routers.
     rate_limit_per_min: int = field(
         default_factory=lambda: int(os.environ.get("LASTECHO_RATE_LIMIT_PER_MIN", "120"))
+    )
+    # Much tighter per-IP cap on POST /api/admin/login specifically — password
+    # guessing should never get the generous public-read budget.
+    admin_login_rate_limit_per_min: int = field(
+        default_factory=lambda: int(os.environ.get("LASTECHO_ADMIN_LOGIN_RATE_LIMIT_PER_MIN", "10"))
+    )
+    # Expose the interactive API docs (/docs, /redoc, /openapi.json). On by
+    # default for local development; set LASTECHO_EXPOSE_DOCS=false in production
+    # so the full admin/triage surface isn't published to anonymous users.
+    expose_docs: bool = field(
+        default_factory=lambda: _bool_env("LASTECHO_EXPOSE_DOCS", True)
     )
     # The startup triage sweep does live ROR lookups + (optionally) paid Anthropic
     # calls. Off by default so boot is fast and cheap; run it on demand via
