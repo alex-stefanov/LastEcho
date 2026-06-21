@@ -25,14 +25,26 @@ def run_sweep(
     anthropic_api_key: str | None,
     organizations: list[Organization] | None = None,
 ) -> TriageRunResult:
-    candidates = sorted(languages, key=lambda l: l.rank)[:top_n]
+    """Top up the review queue to `top_n` drafts awaiting review.
+
+    Drafts the next most-urgent languages (by rank) that have never been
+    contacted, until there are `top_n` drafts in pending_review. A language with
+    any draft — pending, sent, rejected, replied — is never re-drafted, so once
+    you handle a draft (approve/send, reject) its slot is filled by the next
+    most-urgent untouched language on the following run. This makes the sweep a
+    self-refilling queue rather than a one-time top-N seed."""
+    pending = len(store_db.list_drafts(conn, "pending_review"))
+    need = top_n - pending
+    if need <= 0:
+        return TriageRunResult(drafted=0, skipped=0, escalated=0)
+
     drafted = 0
     skipped = 0
-
-    for language in candidates:
+    for language in sorted(languages, key=lambda l: l.rank):
+        if drafted >= need:
+            break
         if store_db.latest_draft_for_language(conn, language.id) is not None:
-            skipped += 1  # already has outreach history — idempotent, never re-drafted by the sweep
-            continue
+            continue  # already contacted — never re-drafted (tracks who we've emailed)
 
         ladder = matching.build_ladder(
             conn, institutions_file, language,

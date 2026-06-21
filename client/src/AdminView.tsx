@@ -9,6 +9,7 @@ import {
   markReplied,
   markSent,
   rejectDraft,
+  runTriage,
   sendDraft,
   updateDraft,
   type DraftStatus,
@@ -233,6 +234,12 @@ export default function AdminView() {
       const rows = await fetchOutreachQueue();
       setDrafts(rows);
       if (!rows.some((r) => r.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
+      // Handling a draft can free a review slot — top the queue back up with the
+      // next most-urgent untouched language. Fire-and-forget so the action stays
+      // snappy; refresh again only if the sweep actually drafted something.
+      runTriage()
+        .then((res) => (res.drafted > 0 ? fetchOutreachQueue().then(setDrafts) : null))
+        .catch(() => {});
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Action failed');
     } finally {

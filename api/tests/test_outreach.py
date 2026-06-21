@@ -186,13 +186,37 @@ def test_sweep_drafts_only_top_n_and_is_idempotent(conn):
         assert len(rows) == 2
         assert all(r["status"] == "pending_review" for r in rows)
 
-        # Re-running must not duplicate — idempotent.
+        # Re-running with a full queue is a no-op — already at top_n pending.
         result2 = triage.run_sweep(
             conn, languages, INSTITUTIONS, top_n=2, ror_cache_ttl_days=30, anthropic_api_key=None,
         )
     assert result2.drafted == 0
-    assert result2.skipped == 2
+    assert result2.skipped == 0
     assert len(store_db.list_drafts(conn)) == 2
+
+
+def test_sweep_tops_up_after_a_draft_is_handled(conn):
+    """Handling a draft frees a slot: the next sweep drafts the next-most-urgent
+    language that hasn't been contacted, without re-drafting handled ones."""
+    languages = [NEW_GUINEA, SCATTERED, OCEAN]
+    with patch("app.national_lookup.httpx.Client") as MockClient:
+        MockClient.return_value.__enter__.return_value.get.return_value = _ror_response([NINLAN_ITEM])
+
+        triage.run_sweep(
+            conn, languages, INSTITUTIONS, top_n=2, ror_cache_ttl_days=30, anthropic_api_key=None,
+        )
+        # Handle one of the two pending drafts (reject it) -> pending drops to 1.
+        first_id = store_db.list_drafts(conn, "pending_review")[0]["id"]
+        store_db.set_status(conn, first_id, "rejected")
+
+        # Topping up to 2 drafts the third (untouched) language, not the handled one.
+        result = triage.run_sweep(
+            conn, languages, INSTITUTIONS, top_n=2, ror_cache_ttl_days=30, anthropic_api_key=None,
+        )
+    assert result.drafted == 1
+    assert len(store_db.list_drafts(conn, "pending_review")) == 2
+    # The rejected language was not re-drafted: 3 rows total (2 pending + 1 rejected).
+    assert len(store_db.list_drafts(conn)) == 3
 
 
 # --- approve/reject + escalation ladder -------------------------------------
