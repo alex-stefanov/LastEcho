@@ -129,8 +129,8 @@ export async function fetchInstitutions(languageId: number): Promise<Institution
 }
 
 // --- admin (approval + send) ------------------------------------------------
-// Not linked from the public app. A human reviews drafted text here and is
-// the one who actually sends it — see AdminView.tsx.
+// Not linked from the public app. A human reviews drafted text here; approving
+// from AdminView.tsx immediately sends through the backend mailer.
 
 export async function fetchOutreachQueue(status?: DraftStatus): Promise<OutreachDraft[]> {
   const qs = status ? `?status=${status}` : '';

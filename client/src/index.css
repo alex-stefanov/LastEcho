@@ -2119,6 +2119,7 @@ body {
 }
 .admin-controls .admin-tabs {
   flex: 1;
+  min-height: 45px;
   min-width: 0;
 }
 

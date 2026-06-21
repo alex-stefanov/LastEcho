@@ -7,7 +7,6 @@ import {
   hasAdminToken,
   loginAdmin,
   markReplied,
-  markSent,
   rejectDraft,
   runTriage,
   sendDraft,
@@ -18,7 +17,7 @@ import {
 } from './data/api';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
 
-type AdminViewFilter = 'review' | 'ready' | 'active' | 'closed';
+type AdminViewFilter = 'review' | 'active' | 'closed';
 type AdminSort = 'priority' | 'oldest' | 'newest';
 
 const TIER_RANK: Record<OutreachTier, number> = { global: 3, continental: 2, local: 1 };
@@ -47,15 +46,14 @@ const THEME_KEY = 'lastecho-theme';
 type StatusTone = 'pending' | 'approved' | 'sent' | 'replied' | 'rejected' | 'no_reply';
 
 const FILTERS: { key: AdminViewFilter; label: string; statuses: DraftStatus[] }[] = [
-  { key: 'review', label: 'Review', statuses: ['pending_review'] },
-  { key: 'ready', label: 'Ready', statuses: ['approved'] },
+  { key: 'review', label: 'Review', statuses: ['pending_review', 'approved'] },
   { key: 'active', label: 'Sent', statuses: ['sent', 'no_reply'] },
   { key: 'closed', label: 'Closed', statuses: ['replied', 'rejected'] },
 ];
 
 const STATUS_LABEL: Record<DraftStatus, string> = {
   pending_review: 'Pending review',
-  approved: 'Ready to send',
+  approved: 'Needs send retry',
   rejected: 'Rejected',
   sent: 'Awaiting reply',
   replied: 'Replied',
@@ -64,11 +62,6 @@ const STATUS_LABEL: Record<DraftStatus, string> = {
 
 function toneFor(status: DraftStatus): StatusTone {
   return status === 'pending_review' ? 'pending' : status;
-}
-
-function mailtoFor(d: OutreachDraft): string {
-  const params = new URLSearchParams({ subject: d.subject, body: d.body });
-  return `mailto:${d.institutionEmail}?${params.toString()}`;
 }
 
 // Defence-in-depth: institution URLs can originate from third-party ROR data.
@@ -230,10 +223,20 @@ export default function AdminView() {
   };
 
   const stats = useMemo(() => ({
-    review: drafts.filter((draft) => draft.status === 'pending_review').length,
-    ready: drafts.filter((draft) => draft.status === 'approved').length,
+    review: drafts.filter((draft) => draft.status === 'pending_review' || draft.status === 'approved').length,
     sent: drafts.filter((draft) => draft.status === 'sent' || draft.status === 'no_reply').length,
+    closed: drafts.filter((draft) => draft.status === 'replied' || draft.status === 'rejected').length,
   }), [drafts]);
+
+  const approveAndSendDraft = async (id: number): Promise<OutreachDraft | null> => {
+    const current = drafts.find((draft) => draft.id === id);
+    if (!current?.institutionEmail) {
+      throw new Error('Add a recipient email before approving. Approve now sends the email automatically.');
+    }
+
+    await approveDraft(id);
+    return sendDraft(id);
+  };
 
   const act = async (id: number, apiCall: (id: number) => Promise<OutreachDraft | null>) => {
     setError(null);
@@ -251,6 +254,11 @@ export default function AdminView() {
         .catch(() => {});
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Action failed');
+      // If approve succeeded but delivery failed, refresh the queue so the admin
+      // sees the draft as needing a retry instead of keeping stale UI state.
+      fetchOutreachQueue()
+        .then(setDrafts)
+        .catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -290,8 +298,8 @@ export default function AdminView() {
 
         <section className="admin-metrics" aria-label="Admin overview">
           <article className="admin-metric-card"><span>Review</span><strong>{stats.review}</strong></article>
-          <article className="admin-metric-card"><span>Ready</span><strong>{stats.ready}</strong></article>
           <article className="admin-metric-card"><span>Sent</span><strong>{stats.sent}</strong></article>
+          <article className="admin-metric-card"><span>Closed</span><strong>{stats.closed}</strong></article>
         </section>
 
         <div className="admin-controls">
@@ -428,19 +436,17 @@ export default function AdminView() {
                       {canEdit && <button className="admin-action" type="button" disabled={busy} onClick={startEdit}>Edit</button>}
                       {selected.status === 'pending_review' && (
                         <>
-                          <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, approveDraft)}>Approve</button>
+                          <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, approveAndSendDraft)}>{busy ? 'Sending…' : 'Approve'}</button>
                           <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, rejectDraft)}>Reject</button>
                         </>
                       )}
                       {selected.status === 'approved' && (
                         <>
                           {selected.institutionEmail
-                            ? <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>
-                            : <a className="admin-action primary" href={safeUrl(selected.institutionContactUrl)} target="_blank" rel="noreferrer">Contact page</a>
+                            ? <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, sendDraft)}>{busy ? 'Sending…' : 'Retry send'}</button>
+                            : <button className="admin-action primary" type="button" disabled>Edit recipient email first</button>
                           }
-                          {selected.institutionEmail && <a className="admin-action" href={mailtoFor(selected)}>Open email</a>}
                           <button className="admin-action" type="button" onClick={copyDraft}>{copied ? 'Copied' : 'Copy'}</button>
-                          <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, markSent)}>Mark sent</button>
                         </>
                       )}
                     </>
