@@ -1,14 +1,14 @@
+import logoMark from '../assets/lastecho-mark.png';
+
 export default function Wordmark() {
   return (
     <header className="wordmark">
-      <h1>
-        Last<span className="echo">Echo</span>
-      </h1>
-      <div className="rule" />
-      <p className="tag">
-        A planet of fading light — forecasting which languages fall through the
-        documentation window, and when.
-      </p>
+      <div className="brand-lockup" aria-label="LastEcho">
+        <img className="brand-mark" src={logoMark} alt="" aria-hidden="true" />
+        <h1>
+          Last<span className="echo">Echo</span>
+        </h1>
+      </div>
     </header>
   );
 }
