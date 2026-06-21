@@ -243,6 +243,28 @@ export default function AdminView() {
       const rows = await fetchOutreachQueue();
       setDrafts(rows);
       if (!rows.some((r) => r.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
+      runTriage()
+        .then((res) => (res.drafted > 0 ? fetchOutreachQueue().then(setDrafts) : null))
+        .catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Action failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Approve a draft and, when it has an email address, send it immediately so it
+  // lands straight in Sent — skipping the manual Ready step. Drafts with no email
+  // can't be transmitted, so they stay in Ready for the contact-page path.
+  const approveAndSend = async (draft: OutreachDraft) => {
+    setError(null);
+    setBusy(true);
+    try {
+      await approveDraft(draft.id);
+      if (draft.institutionEmail) await sendDraft(draft.id);
+      const rows = await fetchOutreachQueue();
+      setDrafts(rows);
+      if (!rows.some((r) => r.id === selectedId)) setSelectedId(rows[0]?.id ?? null);
       // Handling a draft can free a review slot — top the queue back up with the
       // next most-urgent untouched language. Fire-and-forget so the action stays
       // snappy; refresh again only if the sweep actually drafted something.
@@ -428,7 +450,7 @@ export default function AdminView() {
                       {canEdit && <button className="admin-action" type="button" disabled={busy} onClick={startEdit}>Edit</button>}
                       {selected.status === 'pending_review' && (
                         <>
-                          <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, approveDraft)}>Approve</button>
+                          <button className="admin-action primary" type="button" disabled={busy} onClick={() => approveAndSend(selected)}>{busy ? 'Sending…' : selected.institutionEmail ? 'Approve & send' : 'Approve'}</button>
                           <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, rejectDraft)}>Reject</button>
                         </>
                       )}
