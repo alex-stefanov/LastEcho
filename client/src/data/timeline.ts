@@ -3,9 +3,8 @@
 //
 // The globe's extinction-risk layer is driven by the real, per-year snapshots
 // in ./timeline_by_year/{year}.json (2000–2050, ~3,300 languages each). Those
-// files total ~99 MB, so they are NOT bundled: Vite's import.meta.glob gives one
-// lazily-loaded, code-split chunk per year, fetched straight from the client
-// data folder on demand and cached by the browser.
+// files total ~99 MB, so they are NOT bundled as JavaScript: Vite emits them
+// as plain static assets and we fetch only the selected year on demand.
 //
 // We additionally cache the parsed result in memory so scrubbing back to a year
 // already visited is instant and never re-fetches — this is the "show a year"
@@ -56,14 +55,15 @@ export const TL_MAX_YEAR = metadata.max_year; // 2050
 export const TL_TODAY = 2026;
 export const FORECAST_START = TL_TODAY + 1; // 2027
 
-// One lazy import per snapshot. import.meta.glob is lazy by default (it returns
-// loader functions, not the data), so each year becomes its own chunk.
-const loaders = import.meta.glob('./timeline_by_year/*.json') as Record<
+// One lazy URL per snapshot. `?url` keeps the large JSON files out of the JS
+// bundle, which makes production builds far less memory-hungry on hosts like
+// Netlify while preserving the same runtime behavior.
+const loaders = import.meta.glob('./timeline_by_year/*.json', { query: '?url', import: 'default' }) as Record<
   string,
-  () => Promise<{ default: YearData }>
+  () => Promise<string>
 >;
 
-const byYear = new Map<number, () => Promise<{ default: YearData }>>();
+const byYear = new Map<number, () => Promise<string>>();
 for (const path in loaders) {
   const m = path.match(/(\d{4})\.json$/); // skip metadata.json
   if (m) byYear.set(Number(m[1]), loaders[path]);
@@ -112,10 +112,13 @@ export async function loadYear(year: number): Promise<YearData> {
   }
   const loader = byYear.get(year);
   if (!loader) throw new Error(`No timeline snapshot for ${year}`);
-  const mod = await loader();
-  cache.set(year, mod.default);
+  const url = await loader();
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to load timeline snapshot for ${year}`);
+  const data = (await response.json()) as YearData;
+  cache.set(year, data);
   evictIfNeeded();
-  return mod.default;
+  return data;
 }
 
 // Display order, worst-to-... actually best-to-worst-then-unknown — used for

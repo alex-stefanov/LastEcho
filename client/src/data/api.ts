@@ -129,8 +129,8 @@ export async function fetchInstitutions(languageId: number): Promise<Institution
 }
 
 // --- admin (approval + send) ------------------------------------------------
-// Not linked from the public app. A human reviews drafted text here and is
-// the one who actually sends it — see AdminView.tsx.
+// Not linked from the public app. Approving a draft now sends it immediately
+// through the backend and moves it straight into the Sent section.
 
 export async function fetchOutreachQueue(status?: DraftStatus): Promise<OutreachDraft[]> {
   const qs = status ? `?status=${status}` : '';
@@ -141,7 +141,10 @@ export async function fetchOutreachQueue(status?: DraftStatus): Promise<Outreach
 
 export async function approveDraft(id: number): Promise<OutreachDraft> {
   const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/approve`, { method: 'POST', headers: adminHeaders() });
-  if (!res.ok) throw new Error(`API ${res.status}: failed to approve draft`);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `API ${res.status}: failed to approve and send draft`);
+  }
   return res.json();
 }
 
@@ -157,11 +160,8 @@ export async function markSent(id: number): Promise<OutreachDraft> {
   return res.json();
 }
 
-// Actually transmits the approved draft to the matched organization's email via
-// the server's SMTP, then records it sent. Distinct from markSent (manual
-// record): use this when the draft has a real institutionEmail. The server
-// returns 400 (no recipient), 503 (SMTP not configured), or 502 (delivery
-// failed) — surfaced here so the admin sees why a send didn't go out.
+// Backward-compatible helper for legacy approved drafts or direct callers.
+// The current admin UI uses approveDraft for the single approve-and-send action.
 export async function sendDraft(id: number): Promise<OutreachDraft> {
   const res = await fetch(`${API_BASE}/api/outreach-queue/${id}/send`, { method: 'POST', headers: adminHeaders() });
   if (!res.ok) {

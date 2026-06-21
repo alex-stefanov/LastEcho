@@ -334,6 +334,65 @@ def _approved_draft(conn: sqlite3.Connection, *, email: str | None) -> int:
     return draft_id
 
 
+
+def _pending_draft(conn: sqlite3.Connection, *, email: str | None) -> int:
+    return store_db.insert_draft(
+        conn, language_id=PORTUGAL.id, institution_id="org-fun-languages-viseu", tier="local",
+        subject="Documentation support for Lusu", body="Hello,\n\nPlease help.", ask="Help?",
+        language_name="Lusu", institution_name="Fun Languages Viseu",
+        institution_url="", institution_contact_url=f"mailto:{email}" if email else "",
+        institution_email=email,
+    )
+
+
+def test_approve_sends_and_marks_sent(conn):
+    draft_id = _pending_draft(conn, email="viseu@example.com")
+    with patch.object(outreach_queue.mailer, "is_configured", return_value=True), \
+         patch.object(outreach_queue.mailer, "send") as mock_send:
+        res = _send_client(conn).post(f"/api/outreach-queue/{draft_id}/approve")
+    assert res.status_code == 200
+    assert res.json()["status"] == "sent"
+    mock_send.assert_called_once()
+    kwargs = mock_send.call_args.kwargs
+    assert kwargs["to"] == "viseu@example.com"
+    row = store_db.get_draft(conn, draft_id)
+    assert row["status"] == "sent"
+    assert row["sent_at"] is not None
+    assert row["decided_at"] is not None
+
+
+def test_approve_requires_recipient_without_changing_status(conn):
+    draft_id = _pending_draft(conn, email=None)
+    with patch.object(outreach_queue.mailer, "is_configured", return_value=True), \
+         patch.object(outreach_queue.mailer, "send") as mock_send:
+        res = _send_client(conn).post(f"/api/outreach-queue/{draft_id}/approve")
+    assert res.status_code == 400
+    mock_send.assert_not_called()
+    assert store_db.get_draft(conn, draft_id)["status"] == "pending_review"
+
+
+def test_approve_502_on_delivery_failure_leaves_draft_pending(conn):
+    draft_id = _pending_draft(conn, email="viseu@example.com")
+    with patch.object(outreach_queue.mailer, "is_configured", return_value=True), \
+         patch.object(outreach_queue.mailer, "send", side_effect=RuntimeError("smtp down")):
+        res = _send_client(conn).post(f"/api/outreach-queue/{draft_id}/approve")
+    assert res.status_code == 502
+    row = store_db.get_draft(conn, draft_id)
+    assert row["status"] == "pending_review"
+    assert row["sent_at"] is None
+    assert row["decided_at"] is None
+
+
+def test_approve_can_send_legacy_approved_draft(conn):
+    draft_id = _approved_draft(conn, email="viseu@example.com")
+    with patch.object(outreach_queue.mailer, "is_configured", return_value=True), \
+         patch.object(outreach_queue.mailer, "send") as mock_send:
+        res = _send_client(conn).post(f"/api/outreach-queue/{draft_id}/approve")
+    assert res.status_code == 200
+    assert res.json()["status"] == "sent"
+    mock_send.assert_called_once()
+    assert store_db.get_draft(conn, draft_id)["status"] == "sent"
+
 def test_send_transmits_and_marks_sent(conn):
     draft_id = _approved_draft(conn, email="viseu@example.com")
     with patch.object(outreach_queue.mailer, "is_configured", return_value=True), \

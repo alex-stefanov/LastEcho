@@ -200,6 +200,31 @@ def set_status_if(
     return cur.rowcount > 0
 
 
+def claim_send(
+    conn: sqlite3.Connection, draft_id: int, expected_statuses: tuple[str, ...]
+) -> bool:
+    """Atomically claim a draft for delivery and mark it sent.
+
+    Approval now sends directly, so a pending draft may move straight to sent.
+    COALESCE keeps the old decided_at for legacy approved drafts, while setting
+    it for newly approved-and-sent drafts.
+    """
+    if not expected_statuses:
+        return False
+    now = _now()
+    placeholders = ",".join("?" * len(expected_statuses))
+    cur = conn.execute(
+        f"""
+        UPDATE outreach_queue
+        SET status = 'sent', sent_at = ?, decided_at = COALESCE(decided_at, ?)
+        WHERE id = ? AND status IN ({placeholders})
+        """,
+        (now, now, draft_id, *expected_statuses),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def update_draft(
     conn: sqlite3.Connection,
     draft_id: int,
@@ -231,13 +256,25 @@ def update_draft(
     conn.commit()
 
 
-def revert_send_claim(conn: sqlite3.Connection, draft_id: int) -> None:
-    """Undo a 'sent' claim after delivery failed: back to approved, clear sent_at,
-    so the admin can retry and the draft is never shown as sent when it wasn't."""
-    conn.execute(
-        "UPDATE outreach_queue SET status = 'approved', sent_at = NULL WHERE id = ?",
-        (draft_id,),
-    )
+def revert_send_claim(
+    conn: sqlite3.Connection, draft_id: int, previous_status: str = "approved"
+) -> None:
+    """Undo a send claim after delivery failed.
+
+    Previous approved rows go back to approved; direct approve-and-send failures
+    go back to pending review and clear decided_at as well, so the admin can
+    edit/fix the draft and retry without seeing a fake sent state.
+    """
+    if previous_status == "pending_review":
+        conn.execute(
+            "UPDATE outreach_queue SET status = 'pending_review', sent_at = NULL, decided_at = NULL WHERE id = ?",
+            (draft_id,),
+        )
+    else:
+        conn.execute(
+            "UPDATE outreach_queue SET status = ?, sent_at = NULL WHERE id = ?",
+            (previous_status, draft_id),
+        )
     conn.commit()
 
 

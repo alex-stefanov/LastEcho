@@ -87,11 +87,61 @@ def update_draft(
     return _row_to_draft(_get_or_404(conn, draft_id))
 
 
-@router.post("/{draft_id}/approve", response_model=OutreachDraft, summary="Approve a draft (admin)")
-def approve(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> OutreachDraft:
-    _get_or_404(conn, draft_id)
-    store_db.set_status(conn, draft_id, "approved")
+def _send_and_record(
+    draft_id: int,
+    row: sqlite3.Row,
+    conn: sqlite3.Connection,
+    *,
+    expected_statuses: tuple[str, ...],
+) -> OutreachDraft:
+    """Deliver the row's email and move it into the sent state exactly once.
+
+    Validation happens before the DB claim, so missing SMTP config or missing
+    recipients do not mutate deployed data. The atomic claim prevents double
+    sends if an admin clicks twice or two tabs race each other.
+    """
+    recipient = row["institution_email"]
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail="Add a recipient email before approving. This draft was not sent.",
+        )
+    if not mailer.is_valid_address(recipient):
+        raise HTTPException(status_code=400, detail="Invalid recipient email address")
+    if not mailer.is_configured(settings):
+        raise HTTPException(
+            status_code=503,
+            detail="Email sending is not configured. Set LASTECHO_POSTMARK_TOKEN and LASTECHO_SMTP_FROM (or the LASTECHO_SMTP_* SMTP settings).",
+        )
+
+    previous_status = row["status"]
+    if not store_db.claim_send(conn, draft_id, expected_statuses):
+        raise HTTPException(status_code=409, detail="Draft is no longer awaiting send")
+
+    try:
+        mailer.send(to=recipient, subject=row["subject"], body=row["body"], settings=settings)
+    except Exception as exc:  # delivery failed — release the claim, leave it un-sent
+        store_db.revert_send_claim(conn, draft_id, previous_status=previous_status)
+        logger.error("send failed for draft %s: %s", draft_id, exc)
+        # This endpoint is admin-only, so surfacing the underlying provider error
+        # is safe and saves a trip to the server logs when diagnosing a rejection
+        # (bad credentials, unverified sender, recipient not allowed, etc.).
+        raise HTTPException(status_code=502, detail=f"Email delivery failed: {exc}")
+
     return _row_to_draft(_get_or_404(conn, draft_id))
+
+
+@router.post("/{draft_id}/approve", response_model=OutreachDraft, summary="Approve and send a draft (admin)")
+def approve(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> OutreachDraft:
+    row = _get_or_404(conn, draft_id)
+    if row["status"] not in ("pending_review", "approved"):
+        raise HTTPException(status_code=400, detail="Only unsent drafts can be approved and sent")
+    return _send_and_record(
+        draft_id,
+        row,
+        conn,
+        expected_statuses=("pending_review", "approved"),
+    )
 
 
 @router.post("/{draft_id}/reject", response_model=OutreachDraft, summary="Reject a draft (admin)")
@@ -109,41 +159,17 @@ def mark_sent(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> Outr
     return _row_to_draft(_get_or_404(conn, draft_id))
 
 
-@router.post("/{draft_id}/send", response_model=OutreachDraft, summary="Actually send the email via SMTP")
+@router.post("/{draft_id}/send", response_model=OutreachDraft, summary="Actually send an already-approved email")
 def send(draft_id: int, conn: sqlite3.Connection = Depends(get_db)) -> OutreachDraft:
-    """Transmit an approved draft to the matched organization's address, then
-    record it sent. Distinct from mark-sent (which only records a manual send):
-    this one really delivers, so it requires a recipient email and configured
-    SMTP — failing loudly (400/503/502) rather than marking sent on a no-op."""
+    """Backward-compatible endpoint for legacy approved drafts.
+
+    The admin UI now calls /approve, which approves and sends in one action.
+    Keeping /send avoids breaking any deployed approved rows or direct callers.
+    """
     row = _get_or_404(conn, draft_id)
     if row["status"] != "approved":
         raise HTTPException(status_code=400, detail="Only approved drafts can be sent")
-    recipient = row["institution_email"]
-    if not recipient:
-        raise HTTPException(
-            status_code=400,
-            detail="This draft's institution has no email address — use its contact page and Mark sent instead.",
-        )
-    if not mailer.is_configured(settings):
-        raise HTTPException(
-            status_code=503,
-            detail="Email sending is not configured. Set LASTECHO_POSTMARK_TOKEN and LASTECHO_SMTP_FROM (or the LASTECHO_SMTP_* SMTP settings).",
-        )
-    # Claim the draft atomically before delivering: if a concurrent request
-    # already moved it out of 'approved', we lose the race and stop here, so the
-    # same email is never sent twice.
-    if not store_db.set_status_if(conn, draft_id, "approved", "sent"):
-        raise HTTPException(status_code=409, detail="Draft is no longer awaiting send")
-    try:
-        mailer.send(to=recipient, subject=row["subject"], body=row["body"], settings=settings)
-    except Exception as exc:  # delivery failed — release the claim, leave it un-sent
-        store_db.revert_send_claim(conn, draft_id)
-        logger.error("send failed for draft %s: %s", draft_id, exc)
-        # This endpoint is admin-only, so surfacing the underlying SMTP error is
-        # safe and saves a trip to the server logs when diagnosing a rejection
-        # (bad credentials, unverified sender, recipient not allowed, etc.).
-        raise HTTPException(status_code=502, detail=f"Email delivery failed: {exc}")
-    return _row_to_draft(_get_or_404(conn, draft_id))
+    return _send_and_record(draft_id, row, conn, expected_statuses=("approved",))
 
 
 @router.post("/{draft_id}/mark-replied", response_model=OutreachDraft, summary="Admin records a reply came in")

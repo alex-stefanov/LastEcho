@@ -7,10 +7,8 @@ import {
   hasAdminToken,
   loginAdmin,
   markReplied,
-  markSent,
   rejectDraft,
   runTriage,
-  sendDraft,
   updateDraft,
   type DraftStatus,
   type OutreachDraft,
@@ -18,7 +16,7 @@ import {
 } from './data/api';
 import ThemeToggle, { type Theme } from './components/ThemeToggle';
 
-type AdminViewFilter = 'review' | 'ready' | 'active' | 'closed';
+type AdminViewFilter = 'review' | 'active' | 'closed';
 type AdminSort = 'priority' | 'oldest' | 'newest';
 
 const TIER_RANK: Record<OutreachTier, number> = { global: 3, continental: 2, local: 1 };
@@ -47,15 +45,16 @@ const THEME_KEY = 'lastecho-theme';
 type StatusTone = 'pending' | 'approved' | 'sent' | 'replied' | 'rejected' | 'no_reply';
 
 const FILTERS: { key: AdminViewFilter; label: string; statuses: DraftStatus[] }[] = [
-  { key: 'review', label: 'Review', statuses: ['pending_review'] },
-  { key: 'ready', label: 'Ready', statuses: ['approved'] },
+  // Include legacy `approved` rows here so existing deployed data stays visible
+  // after removing the separate Ready step. Clicking Approve sends them too.
+  { key: 'review', label: 'Review', statuses: ['pending_review', 'approved'] },
   { key: 'active', label: 'Sent', statuses: ['sent', 'no_reply'] },
   { key: 'closed', label: 'Closed', statuses: ['replied', 'rejected'] },
 ];
 
 const STATUS_LABEL: Record<DraftStatus, string> = {
   pending_review: 'Pending review',
-  approved: 'Ready to send',
+  approved: 'Needs sending',
   rejected: 'Rejected',
   sent: 'Awaiting reply',
   replied: 'Replied',
@@ -230,9 +229,9 @@ export default function AdminView() {
   };
 
   const stats = useMemo(() => ({
-    review: drafts.filter((draft) => draft.status === 'pending_review').length,
-    ready: drafts.filter((draft) => draft.status === 'approved').length,
+    review: drafts.filter((draft) => draft.status === 'pending_review' || draft.status === 'approved').length,
     sent: drafts.filter((draft) => draft.status === 'sent' || draft.status === 'no_reply').length,
+    closed: drafts.filter((draft) => draft.status === 'replied' || draft.status === 'rejected').length,
   }), [drafts]);
 
   const act = async (id: number, apiCall: (id: number) => Promise<OutreachDraft | null>) => {
@@ -290,8 +289,8 @@ export default function AdminView() {
 
         <section className="admin-metrics" aria-label="Admin overview">
           <article className="admin-metric-card"><span>Review</span><strong>{stats.review}</strong></article>
-          <article className="admin-metric-card"><span>Ready</span><strong>{stats.ready}</strong></article>
           <article className="admin-metric-card"><span>Sent</span><strong>{stats.sent}</strong></article>
+          <article className="admin-metric-card"><span>Closed</span><strong>{stats.closed}</strong></article>
         </section>
 
         <div className="admin-controls">
@@ -426,21 +425,22 @@ export default function AdminView() {
                   ) : (
                     <>
                       {canEdit && <button className="admin-action" type="button" disabled={busy} onClick={startEdit}>Edit</button>}
-                      {selected.status === 'pending_review' && (
+                      {(selected.status === 'pending_review' || selected.status === 'approved') && (
                         <>
-                          <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, approveDraft)}>Approve</button>
-                          <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, rejectDraft)}>Reject</button>
-                        </>
-                      )}
-                      {selected.status === 'approved' && (
-                        <>
-                          {selected.institutionEmail
-                            ? <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, sendDraft)}>{busy ? 'Sending…' : 'Send email'}</button>
-                            : <a className="admin-action primary" href={safeUrl(selected.institutionContactUrl)} target="_blank" rel="noreferrer">Contact page</a>
-                          }
-                          {selected.institutionEmail && <a className="admin-action" href={mailtoFor(selected)}>Open email</a>}
+                          {selected.institutionEmail ? (
+                            <button className="admin-action primary" type="button" disabled={busy} onClick={() => act(selected.id, approveDraft)}>
+                              {busy ? 'Sending…' : 'Approve & send'}
+                            </button>
+                          ) : (
+                            <button className="admin-action primary" type="button" disabled>
+                              Add email to send
+                            </button>
+                          )}
+                          {selected.institutionContactUrl && (
+                            <a className="admin-action" href={safeUrl(selected.institutionContactUrl)} target="_blank" rel="noreferrer">Contact page</a>
+                          )}
                           <button className="admin-action" type="button" onClick={copyDraft}>{copied ? 'Copied' : 'Copy'}</button>
-                          <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, markSent)}>Mark sent</button>
+                          <button className="admin-action" type="button" disabled={busy} onClick={() => act(selected.id, rejectDraft)}>Reject</button>
                         </>
                       )}
                     </>
