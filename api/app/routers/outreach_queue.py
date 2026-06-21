@@ -73,7 +73,9 @@ def update_draft(
     row = _get_or_404(conn, draft_id)
     if row["status"] not in ("pending_review", "approved"):
         raise HTTPException(status_code=400, detail="Only pending or approved drafts can be edited")
-    if patch.institutionEmail is not None and patch.institutionEmail != "" and not mailer.is_valid_address(patch.institutionEmail):
+    # A non-empty recipient must be a valid address; "" is allowed through as an
+    # explicit clear (store_db.update_draft writes it as NULL).
+    if patch.institutionEmail not in (None, "") and not mailer.is_valid_address(patch.institutionEmail):
         raise HTTPException(status_code=400, detail="Invalid recipient email address")
     store_db.update_draft(
         conn,

@@ -35,6 +35,10 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    # WAL still allows only one writer at a time; without a busy timeout a
+    # concurrent write (e.g. the background sweep writing while an admin acts)
+    # raises "database is locked" immediately instead of briefly waiting.
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -215,8 +219,11 @@ def update_draft(
         fields.append("body = ?")
         values.append(_clip(body, _MAX_BODY))
     if institution_email is not None:
+        # An empty string is an explicit "clear the recipient" — store NULL so the
+        # draft reads as having no address (and the send endpoint's "no recipient"
+        # 400 is honest) rather than carrying a meaningless "".
         fields.append("institution_email = ?")
-        values.append(institution_email)
+        values.append(institution_email or None)
     if not fields:
         return
     values.append(draft_id)
